@@ -6,108 +6,141 @@ from entsoe.exceptions import NoMatchingDataError
 from dotenv import load_dotenv
 from pathlib import Path
 
-# Source - https://stackoverflow.com/a
-# Posted by jrd1, modified by community. See post 'Timeline' for change history
-# Retrieved 2025-12-10, License - CC BY-SA 4.0
-
+# --- Path Setup ---
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
-
-# 1. Setup Environment
-load_dotenv()  # Load API key from .env file
+load_dotenv(PROJECT_ROOT / ".env")
 API_KEY = os.getenv("ENTSOE_API_KEY")
-client = EntsoePandasClient(api_key=API_KEY)
 
 if not API_KEY:
-    raise ValueError("❌ API Key missing! Please set ENTSOE_API_KEY in your .env file.")
+    raise ValueError("❌ API Key missing! Check .env file.")
 
-# 2. Configuration
+# --- Configuration ---
 START_DATE = pd.Timestamp("2024-01-01", tz="UTC")
 END_DATE = pd.Timestamp("2025-01-01", tz="UTC")
-OUTPUT_DIR = PROJECT_ROOT / "data" / "01_raw"
-OUTPUT_FILE = OUTPUT_DIR / "generation_2024_raw.csv"
+OUTPUT_FILE = PROJECT_ROOT / "data" / "01_raw" / "generation_2024_raw.csv"
 
-# List of common European country codes (ISO-3166-1 alpha-2 / ENTSOE codes)
-# Note: Some small regions are excluded to keep it robust.
-# COUNTRIES = [
-#     "AT", "BE", "BG", "CH", "CZ", "DE", "DK", "EE", "ES", "FI", 
-#     "FR", "GR", "HR", "HU", "IE", "IT", "LT", "LU", "LV", "NL", 
-#     "NO", "PL", "PT", "RO", "SE", "SI", "SK", "UK"
-# ]
-COUNTRIES = ["AT", "BE"]    #short list for testing
+COUNTRIES = ["AT", "BE", "DE", "FR", "NL", "IT"]
+             #"DE", "FR", "NL", "IT", "ES", "PL", "DK", "SE", "NO"]
 
-# We only want these specific generation types
-TARGET_RENEWABLES = [
-    'Solar',
-    'Wind Onshore',
-    'Wind Offshore'
-]
+# Mapping for the Fallback Mechanism
+PSR_MAP = {
+    'Solar': 'B16',
+    'Wind Onshore': 'B19',
+    'Wind Offshore': 'B18'
+}
 
+def clean_and_format(df, country_code):
+    """Helper to standardize any dataframe chunk"""
+    # 1. Handle MultiIndex (Drop 'Actual Consumption' or 'Aggregated' levels)
+    if isinstance(df.columns, pd.MultiIndex):
+        # If 'Actual Aggregated' is explicitly there, take it
+        if 'Actual Aggregated' in df.columns.get_level_values(1):
+            df = df.xs('Actual Aggregated', level=1, axis=1)
+        else:
+            # Fallback: Just drop the second level
+            df.columns = df.columns.droplevel(1)
 
+    # 2. Resample numeric data to 1h Mean
+    df = df.resample('1h').mean()
+    
+    # 3. Add Country Code
+    df["Country"] = country_code
+    return df
 
 def load_data():
-    """
-    Loops through country codes and loads data from entsoe for each of the listed country,
-    concentenates into one single csv, and filter for wind/solar
-    """
-    print(f"Starting data ingestion from ENSTOE ({START_DATE} to {END_DATE})")
-    # Ensure output directory exists
-
-    os.makedirs(OUTPUT_DIR, exist_ok=True) # os.makedirs works with Path objects
-
-    all_data = []
-    try:
-         for country in COUNTRIES:
-            print(f"...fetching data for {country}...")
-            df = client.query_generation(country_code=country, start=START_DATE, end=END_DATE, psr_type=None)
-            
-            if 'Actual Aggregated' in df.columns.get_level_values(1):
-                df = df.xs('Actual Aggregated', level=1, axis=1)
-            else:
-            # Fallback: If the API returns a flat index or different naming
-                df.columns = df.columns.droplevel(1)
-
-            # 2. Filter for our target renewables
-            # (We use intersection to avoid errors if a country lacks 'Wind Offshore')
-            available_cols = [col for col in TARGET_RENEWABLES if col in df.columns]
-            
-            df_filtered = df[available_cols].copy()
-            df_filtered["Country"] = country
-            df_filtered = df_filtered.groupby("Country").resample("1h").mean()
-            all_data.append(df_filtered)
-            time.sleep(5)
+    print(f"🚀 Starting Hybrid Ingestion ({START_DATE.date()} to {END_DATE.date()})")
     
-    except NoMatchingDataError:
-            print(f"⚠️ No data provided by ENTSOE.")
-    except Exception as e:
-            print(f"❌ Error: {str(e)}")   
+    client = EntsoePandasClient(api_key=API_KEY)
+    all_data = []
 
+    OUTPUT_FILE.parent.mkdir(parents=True, exist_ok=True)
+
+    for country in COUNTRIES:
+        print(f"\n🌍 Processing {country}...", end=" ")
+        
+        try:
+            # --- STRATEGY A: The "Wholesale" Query ---
+            # Best for Austria (AT), France (FR), etc.
+            # We try to get ALL generation types at once.
+            print("Attempting bulk download...", end=" ")
+            
+            df = client.query_generation(country, start=START_DATE, end=END_DATE, psr_type=None)
+            
+            # If successful, filter for what we need
+            df = clean_and_format(df, country)
+            
+            # Select only target columns (ignore Biomass, Hydro, etc.)
+            cols_to_keep = [c for c in ['Solar', 'Wind Onshore', 'Wind Offshore'] if c in df.columns]
+            
+            if not cols_to_keep:
+                print("⚠️ (No Solar/Wind found) ", end="")
+            else:
+                df = df[cols_to_keep + ['Country']] # Keep Country column!
+                all_data.append(df)
+                print("✅ Success (Bulk)")
+            
+            time.sleep(1)
+            continue # Move to next country
+
+        except Exception as e:
+            # If Strategy A fails (e.g. Belgium 400 Error), we catch it here
+            print(f"⚠️ Bulk failed ({str(e)}). Switching to specific queries...")
+
+        # --- STRATEGY B: The "Targeted" Query (Fallback) ---
+        # Essential for Belgium (BE), Germany (DE)
+        # We fetch Solar, Wind On, Wind Off separately and merge them.
+        
+        country_parts = []
+        for friendly_name, psr_code in PSR_MAP.items():
+            try:
+                part_df = client.query_generation(country, start=START_DATE, end=END_DATE, psr_type=psr_code)
+                
+                # Clean this specific part
+                part_df = clean_and_format(part_df, country)
+                
+                # Rename the single data column to 'Solar', 'Wind Onshore', etc.
+                # (The clean_and_format leaves it with original name or integer, so we rename)
+                data_col = [c for c in part_df.columns if c != "Country"][0]
+                part_df = part_df.rename(columns={data_col: friendly_name})
+                
+                # We only need the data column for merging (we'll add Country later)
+                country_parts.append(part_df[[friendly_name]])
+
+            except NoMatchingDataError:
+                pass # Normal (e.g. No Offshore for AT)
+            except Exception:
+                pass
+
+        if country_parts:
+            # Merge parts on Timestamp
+            full_country_df = pd.concat(country_parts, axis=1)
+            full_country_df["Country"] = country # Add label back
+            all_data.append(full_country_df)
+            print(f"   ✅ Success (Merged {len(country_parts)} types)")
+        else:
+            print(f"   ❌ Failed completely.")
+
+    # --- Final Assembly ---
+    if not all_data:
+        print("❌ No data collected.")
+        return
+
+    print("\n📦 Combining and Saving...")
     final_df = pd.concat(all_data)
 
-    # 2. Reset Index to turn the Timestamp Index into a Column
-    # This moves the index (timestamp) into the dataframe as a regular column
+    # 1. Reset Index -> 'datetime_utc'
+    final_df.index = pd.to_datetime(final_df.index, utc=True)
     final_df = final_df.reset_index()
+    final_df = final_df.rename(columns={final_df.columns[0]: 'datetime_utc'})
 
-    # 3. Rename the first column (which is now the timestamp)
-    # The new column is likely named 'index' or 'level_0', we force it to 'datetime_utc'
-    #timestamp_idx = df.loc[""]
-    final_df = final_df.rename(columns={final_df.columns[1]: 'datetime_utc'})
+    # 2. Reorder columns
+    cols = ['datetime_utc', 'Country', 'Solar', 'Wind Onshore', 'Wind Offshore']
+    # Filter for cols that actually exist (in case no country had Offshore)
+    existing_cols = [c for c in cols if c in final_df.columns]
+    final_df = final_df[existing_cols]
 
-    # 4. Reorder Columns explicitly
-    # We want: Timestamp -> Country -> [Generation Columns...]
-    # Get list of all columns
-    cols = list(final_df.columns)
-    
-    # Remove 'datetime_utc' and 'country' from the list to handle the rest dynamically
-    cols.remove('datetime_utc')
-    cols.remove('Country')
-    
-    # Construct the new order
-    new_order = ['datetime_utc', 'Country'] + cols
-    final_df = final_df[new_order]
+    final_df.to_csv(OUTPUT_FILE, index=False)
+    print(f"✅ DONE! Saved to: {OUTPUT_FILE}")
 
-    final_df.to_csv(OUTPUT_FILE)
-    print(final_df.head())
-    return
-
-if __name__=="__main__":
+if __name__ == "__main__":
     load_data()
