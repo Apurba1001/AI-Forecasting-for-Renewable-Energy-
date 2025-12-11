@@ -19,8 +19,13 @@ START_DATE = pd.Timestamp("2024-01-01", tz="UTC")
 END_DATE = pd.Timestamp("2025-01-01", tz="UTC")
 OUTPUT_FILE = PROJECT_ROOT / "data" / "01_raw" / "generation_2024_raw.csv"
 
-COUNTRIES = ["AT", "BE", "DE", "FR", "NL", "IT"]
-             #"DE", "FR", "NL", "IT", "ES", "PL", "DK", "SE", "NO"]
+# COUNTRIES = ["AT", "BE", "DE", "FR", "NL", "IT"]
+#              #"DE", "FR", "NL", "IT", "ES", "PL", "DK", "SE", "NO"]
+COUNTRIES = [
+    "AT", "BE", "BG", "CH", "CZ", "DE", "DK", "EE", "ES", "FI", 
+    "FR", "GR", "HR", "HU", "IE", "IT", "LT", "LU", "LV", "NL", 
+    "NO", "PL", "PT", "RO", "SE", "SI", "SK", "UK"
+]
 
 # Mapping for the Fallback Mechanism
 PSR_MAP = {
