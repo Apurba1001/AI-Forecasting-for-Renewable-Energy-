@@ -38,7 +38,7 @@ This project implements a lightweight, cloud-based AI system that forecasts 24-h
    This use case drives decisions around data contracts, storage abstraction, fault isolation, and automated quality gates in the pipeline
 
 ### Rolling-Window Feature Engineering
-![Feature Engineering](docs/images/feature_engineering.png)
+![Feature Engineering](https://github.com/Apurba1001/AI-Forecasting-for-Renewable-Energy-/blob/Apurba/features.png)
     **Primary Actors:** Forecasting Engine, Carbon Intensity Monitor  
     **Description:**  
     When a forecast request or scheduled job is triggered, the system evaluates the current carbon-intensity signal. If carbon intensity is low, the Forecasting Engine executes a full-precision forecasting model ; if carbon intensity is high, it switches to a low-power baseline model to reduce emissions.  
@@ -46,7 +46,7 @@ This project implements a lightweight, cloud-based AI system that forecasts 24-h
     This use case directly influences model selection logic, runtime adaptability, sustainability goals, and the separation of concerns between monitoring and forecasting components.
 
 ### Carbon-Aware Forecast Execution
-![Carbon-Aware Forecasting](docs/images/carbon_aware_execution.png)
+![Carbon-Aware Forecasting](https://github.com/Apurba1001/AI-Forecasting-for-Renewable-Energy-/blob/Apurba/carbon.png)
     **Primary Actors:** Forecasting Engine, Carbon Intensity Monitor  
     **Description:**  
     When a forecast request or scheduled job is triggered, the system evaluates the current carbon-intensity signal. If carbon intensity is low, the Forecasting Engine executes a full-precision forecasting model; if carbon intensity is high, it switches to a low-power baseline or quantized model to reduce emissions.  
@@ -56,7 +56,7 @@ This project implements a lightweight, cloud-based AI system that forecasts 24-h
 ---
 
 ## 3. Component Diagram
-![Component Diagram](docs/images/component_diagram.png)
+![Component Diagram](https://github.com/Apurba1001/AI-Forecasting-for-Renewable-Energy-/blob/Apurba/component.png)
 
 ### **1\. Training Phase (Offline)**
 
