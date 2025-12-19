@@ -30,7 +30,7 @@ This project implements a lightweight, cloud-based AI system that forecasts 24-h
 ## 2. Use Cases
 
 ### Scheduled Data Ingestion and Validation
-![Data Ingest Pipeline](docs/images/data_ingest.png)
+![Data Ingest Pipeline](https://github.com/Apurba1001/AI-Forecasting-for-Renewable-Energy-/blob/Apurba/data_Ingest.png)
    **Primary Actors:** Data Ingest Service, CI/CD Pipeline  
    **Description:**  
     At regular intervals, the Data Ingest Service downloads renewable energy generation data from external sources (ENTSOE)  and validates schema, freshness, and completeness before saving them for feature engineering. Failed validations block downstream processing and trigger alerts in the CI/CD pipeline.  
