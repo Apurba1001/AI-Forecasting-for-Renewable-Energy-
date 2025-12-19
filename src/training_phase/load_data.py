@@ -1,7 +1,7 @@
 import os
 import time
 import pandas as pd
-from entsoe import EntsoePandasClient
+from entsoe.entsoe import EntsoePandasClient
 from entsoe.exceptions import NoMatchingDataError
 from dotenv import load_dotenv
 from pathlib import Path
