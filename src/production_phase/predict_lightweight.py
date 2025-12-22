@@ -2,31 +2,26 @@ import pandas as pd
 import joblib
 from pathlib import Path
 import warnings
+from config import TARGET_COUNTRY, TARGET_COLS, MODEL_DIR, OUTPUT_DIR
 
 # Suppress warnings
 warnings.filterwarnings("ignore")
 
-# --- CONFIGURATION ---
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
-MODEL_DIR = PROJECT_ROOT / "models" / "lightweight"
-OUTPUT_DIR = PROJECT_ROOT / "data" / "03_forecasts"
-OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-
-# -----------------------------------------
-# 🛠️ CHANGE THIS CODE TO PREDICT A DIFFERENT COUNTRY
-TARGET_COUNTRY = "BE" 
-# -----------------------------------------
-
-AVAILABLE_TARGETS = ["Solar", "Wind_Onshore", "Wind_Offshore"]
-
 def load_model(country, target):
-    filename = f"hw_{country}_{target}.pkl"
+    # 1. FIX: Convert "Wind Onshore" -> "Wind_Onshore" for filename lookup
+    clean_target = target.replace(' ', '_')
+    
+    filename = f"hw_{country}_{clean_target}.pkl"
     model_path = MODEL_DIR / filename
+    
     if not model_path.exists():
+        # Debug print to help you verify path is correct
+        # print(f"Checking for model at: {model_path} -> Not Found")
         return None
     try:
         return joblib.load(model_path)
     except Exception as e:
+        print(f"Error loading {filename}: {e}")
         return None
 
 def generate_forecast(country_code):
@@ -41,10 +36,15 @@ def generate_forecast(country_code):
     
     forecasts = {}
     
-    for target in AVAILABLE_TARGETS:
+    for target in TARGET_COLS:
+        # Load model using the helper (which now handles spaces correctly)
         model = load_model(country_code, target)
+        
         if model is None:
             continue
+            
+        # 2. FIX: Create clean name for Output CSV Header
+        clean_target = target.replace(' ', '_')
             
         try:
             # Get the model's raw 24-hour pattern
@@ -55,9 +55,11 @@ def generate_forecast(country_code):
             
             # Map directly to 00:00 - 23:00
             forecast_series = pd.Series(data=raw_values, index=future_index)
-            forecasts[target] = forecast_series
             
-            print(f"   ✅ {target:<15} | Peak: {forecast_series.max():,.0f} MW")
+            # Store using the clean name (e.g., "Wind_Onshore")
+            forecasts[clean_target] = forecast_series
+            
+            print(f"   ✅ {clean_target:<15} | Peak: {forecast_series.max():,.0f} MW")
             
         except Exception as e:
             print(f"   ❌ Failed to predict {target}: {e}")
@@ -65,14 +67,17 @@ def generate_forecast(country_code):
     # Save
     if forecasts:
         result_df = pd.DataFrame(forecasts)
+        
+        # Add Total Generation (Standard for your dashboard)
         result_df["Total_Generation"] = result_df.sum(axis=1)
+        
         result_df.index.name = "datetime_utc"
         
         output_file = OUTPUT_DIR / f"forecast_{country_code}.csv"
         result_df.to_csv(output_file)
         print(f"   📄 Saved to: {output_file.name}")
     else:
-        print(f"   ⚠️ No models found for {country_code}.")
+        print(f"   ⚠️ No models found for {country_code}. Check 'models/lightweight' folder.")
 
 if __name__ == "__main__":
     generate_forecast(TARGET_COUNTRY)

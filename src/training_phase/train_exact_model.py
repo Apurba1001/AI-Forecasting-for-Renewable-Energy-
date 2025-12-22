@@ -2,24 +2,22 @@ import pandas as pd
 from pathlib import Path
 from xgboost import XGBRegressor
 import joblib
+from sklearn.metrics import mean_absolute_error
 from feature_engineering import build_features_dataframe
 
 # ============================================================
 # CONFIG
 # ============================================================
-
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DATA_FILE = PROJECT_ROOT / "data" / "01_raw" / "generation_2024_raw.csv"
-
 MODEL_DIR = PROJECT_ROOT / "models"
+METRICS_DIR = PROJECT_ROOT / "data" / "04_metrics"
 MODEL_DIR.mkdir(parents=True, exist_ok=True)
+METRICS_DIR.mkdir(parents=True, exist_ok=True)
 
-print("Looking for data at:")
-print(DATA_FILE)
-print("Exists?", DATA_FILE.exists())
+TARGET_COL = ["Solar", "Wind Onshore", "Wind Offshore"]
 
-TARGET_COL = ["Solar","Wind Onshore", "Wind Offshore"]   # change to "Wind Onshore" or "Wind Offshore"
-
+# Step 1 Dates: Validation for metrics
 TRAIN_END = "2024-10-31"
 VAL_END = "2024-11-30"
 
@@ -35,64 +33,61 @@ XGB_PARAMS = dict(
     random_state=42,
 )
 
-# ============================================================
-# TRAINING
-# ============================================================
-
 def main():
-    print("\n🚀 STARTING TRAINING FOR ALL ENERGY SOURCES")
-    
-    print("=" * 60)
-    print("TRAINING HIGH-COST XGBOOST MODELS")
-    print("=" * 60)
-    
-    print("TARGET_COLS seen by Python:", TARGET_COL)
+    print("\n🚀 STARTING XGBOOST TRAINING PIPELINE")
+    df_raw = pd.read_csv(DATA_FILE)
+    all_metrics = []
 
-    df = pd.read_csv(DATA_FILE)
-
-    for target_col in TARGET_COL:
-        print(f"\n➡️ Processing target_col = {target_col}")
-
-        if target_col not in df.columns:
-            print(f"⚠️ Skipping {target_col} (column not found)")
+    for target in TARGET_COL:
+        if target not in df_raw.columns:
             continue
 
-        X, y, timestamps = build_features_dataframe(
-            df,
-            target_col=target_col   # ✅ STRING, not list
-        )
+        print(f"\n➡️ Target: {target}")
+        X, y, timestamps = build_features_dataframe(df_raw, target_col=target)
 
-        # --- Time-based split ---
+        # --- STEP 1: VALIDATION FOR METRICS ---
         train_mask = timestamps <= TRAIN_END
         val_mask = (timestamps > TRAIN_END) & (timestamps <= VAL_END)
-
-        X_train, y_train = X.loc[train_mask], y.loc[train_mask]
+        
+        X_train_val, y_train_val = X.loc[train_mask], y.loc[train_mask]
         X_val, y_val = X.loc[val_mask], y.loc[val_mask]
 
-        print(f"Total samples : {len(X)}")
-        print(f"Train samples : {len(X_train)}")
-        print(f"Val samples   : {len(X_val)}")
+        if not X_val.empty:
+            model_val = XGBRegressor(**XGB_PARAMS)
+            model_val.fit(X_train_val, y_train_val, eval_set=[(X_val, y_val)], verbose=False)
+            
+            # Calculate Metrics (Global average for this target)
+            preds = model_val.predict(X_val)
+            mae = mean_absolute_error(y_val, preds)
+            peak = y_val.max()
+            error_pct = (mae / peak * 100) if peak != 0 else 0
+            
+            all_metrics.append({
+                "Country": "GLOBAL", # XGBoost is trained across countries
+                "Energy_Type": target.replace(" ", "_"),
+                "MAE_MW": round(mae, 2),
+                "Test_Peak_MW": round(peak, 2),
+                "Error_Percentage": round(error_pct, 1),
+                "Status": "Success"
+            })
 
-        if X_train.empty or X_val.empty:
-            raise ValueError(f"Empty train/val split for {target_col}")
+        # --- STEP 2: FULL RETRAIN ON 100% DATA ---
+        # No masks = use all data points from 01.01 to 12.31
+        print(f"🔄 Retraining final model on 100% of data (Samples: {len(X)})...")
+        final_model = XGBRegressor(**XGB_PARAMS)
+        final_model.fit(X, y, verbose=False)
 
-        model = XGBRegressor(**XGB_PARAMS)
+        # Save Final Model
+        model_path = MODEL_DIR / f"xgb_high_cost_{target.replace(' ', '_')}.pkl"
+        joblib.dump(final_model, model_path)
+        print(f"✅ Saved Final Model: {model_path.name}")
 
-        model.fit(
-            X_train,
-            y_train,
-            eval_set=[(X_val, y_val)],
-            verbose=100,
-        )
-
-        model_path = MODEL_DIR / f"xgb_high_cost_{target_col.replace(' ', '_')}.pkl"
-        joblib.dump(model, model_path)
-
-        print(f"✅ Saved model: {model_path.name}")
-
-    print("\n🎉 ALL MODELS TRAINED SUCCESSFULLY")
-
-
+    # Save Metrics to CSV
+    metrics_df = pd.DataFrame(all_metrics)
+    metrics_path = METRICS_DIR / "xgb_metrics.csv"
+    metrics_df.to_csv(metrics_path, index=False)
+    print(f"\n📊 Metrics saved to: {metrics_path}")
+    print("🎉 ALL MODELS TRAINED AND READY FOR DEPLOYMENT")
 
 if __name__ == "__main__":
     main()
