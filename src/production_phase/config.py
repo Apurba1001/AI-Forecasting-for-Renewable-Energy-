@@ -18,9 +18,10 @@ DATA_FILE = PROJECT_ROOT / "data" / "01_raw" / "generation_2024_raw.csv"
 # If your folder is named "holt_winters", change "lightweight" to "holt_winters".
 MODEL_DIR = PROJECT_ROOT / "models" / "lightweight" 
 MODEL_DIR_XGB = PROJECT_ROOT / "models"
-
+CARBON_DIR = PROJECT_ROOT / "data" / "05_carbon"
 OUTPUT_DIR = PROJECT_ROOT / "data" / "03_forecasts"
 
 # Ensure directories exist
 MODEL_DIR.mkdir(parents=True, exist_ok=True)
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+CARBON_DIR.mkdir(parents=True, exist_ok=True)
