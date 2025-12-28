@@ -12,7 +12,7 @@ import pandas as pd
 import joblib
 
 # Now this will work because Python knows where to look
-from config import TARGET_COUNTRY, TARGET_COLS, MODEL_DIR, OUTPUT_DIR
+from config import TARGET_COUNTRY, TARGET_COLS, MODEL_DIR_XGB, OUTPUT_DIR, DATA_FILE
 
 warnings.filterwarnings("ignore")
 
@@ -83,6 +83,7 @@ def generate_forecast(country_code="DE"):
     Generates XGBoost forecast.
     Accepts country_code argument to work with Decision Logic.
     """
+    
     # 1. Load Data
     full_df = pd.read_csv(DATA_FILE)
     full_df["datetime_utc"] = pd.to_datetime(full_df["datetime_utc"], utc=True)

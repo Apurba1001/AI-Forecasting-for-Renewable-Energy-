@@ -11,9 +11,9 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /app
 
 # 4. Copy and install requirements
-COPY requirements.txt .
+COPY requirements_deployment.txt .
 RUN pip install --upgrade pip
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements_deployment.txt
 
 # 5. Copy the rest of your project
 COPY . .
