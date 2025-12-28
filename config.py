@@ -3,13 +3,13 @@
 import os
 from pathlib import Path
 
+# --- PATHS ---
+# Since this file is now in the ROOT, the parent is the root itself.
+PROJECT_ROOT = Path(__file__).resolve().parent
+
 # --- GLOBAL SETTINGS ---
 TARGET_COUNTRY = "AT"
 TARGET_COLS = ["Solar", "Wind Onshore", "Wind Offshore"]
-
-# --- PATHS ---
-CURRENT_DIR = Path(__file__).parent
-PROJECT_ROOT = CURRENT_DIR.parent.parent
 
 DATA_FILE = PROJECT_ROOT / "data" / "01_raw" / "generation_2024_raw.csv"
 
