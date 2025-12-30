@@ -4,6 +4,8 @@ from pathlib import Path
 from statsmodels.tsa.holtwinters import ExponentialSmoothing
 from sklearn.metrics import mean_absolute_error
 import warnings
+from codecarbon import EmissionsTracker
+
 
 # Suppress warnings
 warnings.filterwarnings("ignore")
@@ -12,17 +14,28 @@ warnings.filterwarnings("ignore")
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 PROCESSED_DIR = PROJECT_ROOT / "data" / "02_processed" / "lightweight"
 MODEL_DIR = PROJECT_ROOT / "models" / "lightweight"
+CARBON_DIR = PROJECT_ROOT / "data" / "05_carbon"
+
 
 # We will save the "Proof" here
 METRICS_FILE = MODEL_DIR / "metrics_summary.csv"
 
 MODEL_DIR.mkdir(parents=True, exist_ok=True)
+CARBON_DIR.mkdir(parents=True, exist_ok=True)
 
 # Training Cutoff for Validation
 # TRAIN_END = "2024-10-31 23:00:00" -> only needed for Model validation (after that, the model is trained with data from the whole year)
 
 def train_lightweight_models():
     print("🚀 STARTING LIGHTWEIGHT TRAINING & VALIDATION")
+    
+    pipeline_tracker = EmissionsTracker(
+        project_name="holtwinters_lightweight_pipeline",
+        output_dir=str(CARBON_DIR),
+        output_file="hw_pipeline_emissions.csv",
+        log_level="error"
+    )
+    pipeline_tracker.start()
     
     files = list(PROCESSED_DIR.glob("processed_*.csv"))
     if not files:
@@ -38,6 +51,18 @@ def train_lightweight_models():
         country = parts[1]
         target_name = "_".join(parts[2:]) # e.g. "Solar" or "Wind_Onshore"
         
+        tracker = EmissionsTracker(
+            project_name="holtwinters_lightweight",
+            experiment_id=f"{country}_{target_name}",
+            output_dir=str(CARBON_DIR),
+            output_file="hw_emissions.csv",
+            allow_multiple_runs=True,
+            log_level="error"
+        )
+
+        tracker.start()
+        emissions = 0.0
+        
         # 1. Load Data
         df = pd.read_csv(file_path, index_col="datetime_utc", parse_dates=True)
         target_col = df.columns[0]
@@ -49,6 +74,8 @@ def train_lightweight_models():
         test_data = pd.Series() # Test data empty, not needed in production phase
 
         if len(train_data) < 48:
+            print("      ⚠️ Skipped (not enough data)")
+            tracker.stop()
             continue
 
         print(f"\n⚡ Training: {country} - {target_name}")
@@ -98,6 +125,9 @@ def train_lightweight_models():
             model_filename = f"hw_{country}_{target_name}.pkl"
             joblib.dump(model, MODEL_DIR / model_filename)
             
+            emissions = tracker.stop()
+            print(f"      🌱 Carbon emissions: {emissions:.6f} kg CO₂eq")
+            
         except Exception as e:
             print(f"      ❌ Failed: {e}")
             metrics_log.append({
@@ -118,6 +148,10 @@ def train_lightweight_models():
         metrics_df.to_csv(METRICS_FILE, index=False)
         print(f"\n📄 Validation Metrics exported to: {METRICS_FILE}")
         print("   (You can keep this file as proof of model performance.)")
+        
+    pipeline_emissions = pipeline_tracker.stop()
+    print(f"\n🌍 TOTAL Holt-Winters pipeline emissions: {pipeline_emissions:.6f} kg CO₂eq")
+    print("🎉 LIGHTWEIGHT MODELS READY")
 
 if __name__ == "__main__":
     train_lightweight_models()
