@@ -1,163 +1,148 @@
-import sys
-from pathlib import Path
-
-# Get the root directory (3 levels up)
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
-# Add it to Python's search list
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.append(str(PROJECT_ROOT))
-
-import warnings
 import pandas as pd
 import joblib
-
-# Now this will work because Python knows where to look
-from config import TARGET_COUNTRY, TARGET_COLS, MODEL_DIR_XGB, OUTPUT_DIR, DATA_FILE
+import warnings
+import sys
+from pathlib import Path
+# Add the project root to the Python path
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+sys.path.append(str(PROJECT_ROOT))
+from src.production_phase.predict_base_class import BaseForecaster
+from config import TARGET_COLS, MODEL_DIR_XGB, OUTPUT_DIR
 
 warnings.filterwarnings("ignore")
 
-# ... rest of the file
+class XGBoostForecaster(BaseForecaster):
+    def __init__(self):
+        super().__init__()
+        # We don't load the model in __init__ because you have multiple models 
+        # (one for Solar, one for Wind, etc.)
 
-# ==========================================
-# HELPER FUNCTIONS
-# ==========================================
+    # --- YOUR HELPER FUNCTIONS BECOME INTERNAL METHODS ---
+    def _add_time_features(self, df):
+        df["hour"] = df.index.hour
+        df["dayofweek"] = df.index.dayofweek
+        df["month"] = df.index.month
+        df["dayofyear"] = df.index.dayofyear
+        df["weekofyear"] = df.index.isocalendar().week.astype(int)
+        df["is_weekend"] = df["dayofweek"].isin([5, 6]).astype(int)
+        return df
 
-def add_time_features(df):
-    df["hour"] = df.index.hour
-    df["dayofweek"] = df.index.dayofweek
-    df["month"] = df.index.month
-    df["dayofyear"] = df.index.dayofyear
-    df["weekofyear"] = df.index.isocalendar().week.astype(int)
-    df["is_weekend"] = df["dayofweek"].isin([5, 6]).astype(int)
-    return df
-
-def get_prediction_row_mapped(history_df, target_col, real_dt, lookup_dt, country_code, feature_names):
-    # 1. Features from REAL DATE (2025)
-    row_df = pd.DataFrame(index=[real_dt])
-    row_df = add_time_features(row_df)
-    
-    # 2. Lags from LOOKUP DATE (2024)
-    lags = [1, 3, 6, 12, 24, 48, 168]
-    for lag in lags:
-        lag_lookup_time = lookup_dt - pd.Timedelta(hours=lag)
-        
-        # Robust Lookup
-        if lag_lookup_time in history_df.index:
-            val = history_df.loc[lag_lookup_time, target_col]
-            if isinstance(val, pd.Series): val = val.iloc[0] # Handle duplicates
-        else:
-            val = 0
+    def _get_prediction_row(self, history_df, target_col, real_dt, lookup_dt, country_code, feature_names):
+        # ... [Paste your exact get_prediction_row_mapped logic here] ...
+        # Features from REAL DATE (2025)
+        row_df = pd.DataFrame(index=[real_dt])
+        row_df = self._add_time_features(row_df)
+        # 2. Lags from LOOKUP DATE (2024)
+        lags = [1, 3, 6, 12, 24, 48, 168]
+        for lag in lags:
+            lag_lookup_time = lookup_dt - pd.Timedelta(hours=lag)
             
-        row_df[f"{target_col}_lag_{lag}"] = val
+            # Robust Lookup
+            if lag_lookup_time in history_df.index:
+                val = history_df.loc[lag_lookup_time, target_col]
+                if isinstance(val, pd.Series): val = val.iloc[0] # Handle duplicates
+            else:
+                val = 0
+                
+            row_df[f"{target_col}_lag_{lag}"] = val
 
-    # 3. Rolling Stats
-    for window in [24, 168]:
-        window_data = history_df[target_col].loc[:lookup_dt].tail(window)
-        
-        if len(window_data) > 0:
-            row_df[f"{target_col}_roll_mean_{window}"] = window_data.mean()
-            row_df[f"{target_col}_roll_std_{window}"] = window_data.std()
-        else:
-            row_df[f"{target_col}_roll_mean_{window}"] = 0
-            row_df[f"{target_col}_roll_std_{window}"] = 0
-
-    # 4. Country One-Hot
-    for col in feature_names:
-        if col.startswith("country_"):
-            country_suffix = col.replace("country_", "")
-            row_df[col] = 1.0 if country_suffix == country_code else 0.0
-
-    # 5. Final Alignment
-    for col in feature_names:
-        if col not in row_df.columns:
-            row_df[col] = 0.0
-
-    return row_df[feature_names]
-
-# ==========================================
-# MAIN LOOP
-# ==========================================
-
-def generate_forecast(country_code="DE"):
-    """
-    Generates XGBoost forecast.
-    Accepts country_code argument to work with Decision Logic.
-    """
-    
-    # 1. Load Data
-    full_df = pd.read_csv(DATA_FILE)
-    full_df["datetime_utc"] = pd.to_datetime(full_df["datetime_utc"], utc=True)
-    full_df = full_df.drop_duplicates(subset=["datetime_utc", "Country"], keep="last")
-    
-    # Filter by the REQUESTED country_code, not the config constant
-    country_history = full_df[full_df["Country"] == country_code].copy()
-    
-    if country_history.empty:
-        print(f"❌ No historical data found for {country_code}")
-        return None
-
-    country_history = country_history.set_index("datetime_utc").sort_index()
-    
-    # 2. Setup Dates
-    # Real = Today (2025)
-    real_start = pd.Timestamp.now(tz="UTC").normalize()
-    real_steps = pd.date_range(start=real_start, periods=24, freq="h")
-    
-    # Lookup = Same day in 2024 (Data Source)
-    lookup_start = real_start - pd.DateOffset(years=1)
-    lookup_steps = pd.date_range(start=lookup_start, periods=24, freq="h")
-
-    print(f"\n🔮 Generating Forecast for {country_code} (XGBoost)")
-    print(f"   📅 Display Date: {real_start.date()}")
-    print(f"   🔎 Source Data : {lookup_start.date()} (Using history from CSV)\n")
-    
-    all_forecasts = {}
-
-    for target in TARGET_COLS:
-        # File names use underscores
-        clean_target = target.replace(' ', '_')
-        model_name = f"xgb_high_cost_{clean_target}.pkl"
-        model_path = MODEL_DIR_XGB / model_name
-        
-        if not model_path.exists():
-            print(f"   ⚠️ Model missing: {model_name}")
-            continue
+        # 3. Rolling Stats
+        for window in [24, 168]:
+            window_data = history_df[target_col].loc[:lookup_dt].tail(window)
             
-        model = joblib.load(model_path)
-        feature_names = model.get_booster().feature_names
-        
-        temp_history = country_history[[target]].copy()
-        predictions = []
+            if len(window_data) > 0:
+                row_df[f"{target_col}_roll_mean_{window}"] = window_data.mean()
+                row_df[f"{target_col}_roll_std_{window}"] = window_data.std()
+            else:
+                row_df[f"{target_col}_roll_mean_{window}"] = 0
+                row_df[f"{target_col}_roll_std_{window}"] = 0
 
-        for real_dt, lookup_dt in zip(real_steps, lookup_steps):
-            
-            X_step = get_prediction_row_mapped(
-                temp_history, target, real_dt, lookup_dt, country_code, feature_names
-            )
-            
-            pred = model.predict(X_step)[0]
-            pred = max(0, float(pred))
-            
-            # Update history for recursive lags
-            temp_history.loc[lookup_dt, target] = pred
-            predictions.append(pred)
+        # 4. Country One-Hot
+        for col in feature_names:
+            if col.startswith("country_"):
+                country_suffix = col.replace("country_", "")
+                row_df[col] = 1.0 if country_suffix == country_code else 0.0
 
-        all_forecasts[clean_target] = predictions
-        print(f"   ✅ {clean_target:<15} | Peak: {max(predictions):,.0f} MW")
+        # 5. Final Alignment
+        for col in feature_names:
+            if col not in row_df.columns:
+                row_df[col] = 0.0   
+   
+        return row_df[feature_names]
 
-    if all_forecasts:
-        res_df = pd.DataFrame(all_forecasts, index=real_steps)
-        res_df["Total_Generation"] = res_df.sum(axis=1)
-        res_df.index.name = "datetime_utc"
+    # --- MAIN LOOP BECOMES THE 'predict' METHOD ---
+    def predict(self, country_code: str) -> pd.DataFrame:
+        # 1. Load Data (Using the inherited method from BaseForecaster)
+        full_df = self._get_data() 
+        full_df["datetime_utc"] = pd.to_datetime(full_df["datetime_utc"], utc=True)
+        full_df = full_df.drop_duplicates(subset=["datetime_utc", "Country"], keep="last")
         
-        output_file = OUTPUT_DIR / f"xgb_forecast_{country_code}.csv"
-        res_df.to_csv(output_file)
-        print(f"\n   📄 Saved to: {output_file.name}")
+        country_history = full_df[full_df["Country"] == country_code].copy()
+        if country_history.empty:
+            return pd.DataFrame()
+
+        country_history = country_history.set_index("datetime_utc").sort_index()
         
-        # CRITICAL: Return the dataframe
-        return res_df
+        # 2. Setup Dates (Same as your original)
+        real_start = pd.Timestamp.now(tz="UTC").normalize()
+        real_steps = pd.date_range(start=real_start, periods=24, freq="h")
+        lookup_start = real_start - pd.DateOffset(years=1)
+        lookup_steps = pd.date_range(start=lookup_start, periods=24, freq="h")
+
+        all_forecasts = {}
+
+        for target in TARGET_COLS:
+            clean_target = target.replace(' ', '_')
+            model_path = MODEL_DIR_XGB / f"xgb_high_cost_{clean_target}.pkl"
+            
+            if not model_path.exists(): continue
+                
+            model = joblib.load(model_path)
+            feature_names = model.get_booster().feature_names
+            
+            temp_history = country_history[[target]].copy()
+            predictions = []
+
+            for real_dt, lookup_dt in zip(real_steps, lookup_steps):
+                X_step = self._get_prediction_row(
+                    temp_history, target, real_dt, lookup_dt, country_code, feature_names
+                )
+                pred = model.predict(X_step)[0]
+                pred = max(0, float(pred))
+                temp_history.loc[lookup_dt, target] = pred
+                predictions.append(pred)
+
+            all_forecasts[clean_target] = predictions
+
+        # 3. Final Assembly
+        if all_forecasts:
+            res_df = pd.DataFrame(all_forecasts, index=real_steps)
+            res_df["Total_Generation"] = res_df.sum(axis=1)
+            res_df.index.name = "datetime_utc"
+            return res_df
+        
+        return pd.DataFrame()
     
-    return None
-
 if __name__ == "__main__":
-    generate_forecast(TARGET_COUNTRY)
+    from config import TARGET_COUNTRY   #Target country from config for test purposes
+    
+    # 1. Initialize the Forecaster object
+    # This sets up the paths and internal states
+    forecaster = XGBoostForecaster()
+    
+    print(f"--- Starting Forecast Generation for {TARGET_COUNTRY} ---")
+    
+    # 2. Call the public 'predict' method
+    # Notice we don't need to know about lags or model paths here
+    forecast_results = forecaster.predict(TARGET_COUNTRY)
+    
+    # 3. Handle the output
+    if not forecast_results.empty:
+        print("\n📊 Forecast Summary:")
+        print(forecast_results.head(24))
+        print(f"\n✅ Successfully generated {len(forecast_results)} hours of data.")
+        
+        # Save forecast result as csv if needed
+        # forecast_results.to_csv("test_output.csv")
+    else:
+        print("❌ Forecast generation failed. Check logs for details.")

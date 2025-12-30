@@ -9,8 +9,8 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.append(str(PROJECT_ROOT))
 
 # 2. Import the decision logic
-# from src.production_phase.decision_logic import get_optimized_forecast
-from src.production_phase.decision_logic_distributed import get_optimized_forecast
+# --- CHANGE 1: Import the Class, not the function ---
+from src.production_phase.decision_logic_distributed import DistributedOrchestrator
 
 app = FastAPI(title="Renewable Energy Forecast API")
 
@@ -21,6 +21,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# --- CHANGE 2: Instantiate the Orchestrator once ---
+# This initializes the CarbonSimulator and sets up the Docker URLs
+orchestrator = DistributedOrchestrator()
 
 @app.get("/")
 def home():
@@ -39,7 +43,7 @@ def get_smart_forecast(
 
     # 1. Call your Decision Logic
     try:
-        df, metadata = get_optimized_forecast(country_code, carbon_mode=carbon_mode)
+        df, metadata = orchestrator.get_optimized_forecast(country_code, carbon_mode=carbon_mode)
     except Exception as e:
         print(f"❌ Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
