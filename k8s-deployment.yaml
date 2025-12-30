@@ -24,10 +24,18 @@ spec:
         # Liveness Probe: Checks if app is alive every 5 seconds
         livenessProbe:
           httpGet:
-            path: /health  # (Make sure your FastAPI has a root / or /health endpoint)
+            path: /docs # (Make sure your FastAPI has a root / or /health endpoint)
             port: 8001
           initialDelaySeconds: 10
           periodSeconds: 5
+        # Readiness Probe (Waits for startup)
+        readinessProbe:
+          httpGet:
+            path: /docs
+            port: 8001
+          initialDelaySeconds: 5   # Wait 5s before checking
+          periodSeconds: 2         # Check every 2s
+          failureThreshold: 3      # Give up after 3 tries
 ---
 apiVersion: v1
 kind: Service

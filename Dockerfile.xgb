@@ -8,6 +8,7 @@ RUN pip install fastapi uvicorn pandas xgboost joblib scikit-learn
 
 # Copy source code and models
 COPY src/ /app/src/
+COPY data /app/data
 COPY models/ /app/models/
 COPY config.py /app/
 
