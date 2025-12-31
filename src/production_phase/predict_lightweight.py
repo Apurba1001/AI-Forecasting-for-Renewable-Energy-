@@ -33,7 +33,7 @@ def load_model(country, target):
         print(f"Error loading {filename}: {e}")
         return None
 
-def generate_forecast(country_code="DE"):
+def generate_forecast(country_code="DE", forecast_date=None):
     """
     Generates a standard 24h profile (Midnight to Midnight) for the current date.
     Returns the DataFrame for the API to use.
@@ -41,7 +41,10 @@ def generate_forecast(country_code="DE"):
     print(f"\n🔮 Generating Daily Forecast for {country_code} (Lightweight)...")
     
     # Define "Today" from 00:00 to 23:00 UTC
-    today_midnight = pd.Timestamp.now(tz="UTC").normalize()
+    if forecast_date is None:
+        today_midnight = pd.Timestamp.now(tz="UTC").normalize()
+    else:
+        today_midnight = pd.Timestamp(forecast_date, tz="UTC").normalize()
     future_index = pd.date_range(start=today_midnight, periods=24, freq="h")
     
     forecasts = {}

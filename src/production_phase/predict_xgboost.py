@@ -78,7 +78,7 @@ def get_prediction_row_mapped(history_df, target_col, real_dt, lookup_dt, countr
 # MAIN LOOP
 # ==========================================
 
-def generate_forecast(country_code="DE"):
+def generate_forecast(country_code="DE", forecast_date=None):
     """
     Generates XGBoost forecast.
     Accepts country_code argument to work with Decision Logic.
@@ -99,8 +99,12 @@ def generate_forecast(country_code="DE"):
     country_history = country_history.set_index("datetime_utc").sort_index()
     
     # 2. Setup Dates
-    # Real = Today (2025)
-    real_start = pd.Timestamp.now(tz="UTC").normalize()
+        # Real = User selected date or today
+    if forecast_date is None:
+        real_start = pd.Timestamp.now(tz="UTC").normalize()
+    else:
+        # Convert user's date to UTC timestamp
+        real_start = pd.Timestamp(forecast_date, tz="UTC").normalize()
     real_steps = pd.date_range(start=real_start, periods=24, freq="h")
     
     # Lookup = Same day in 2024 (Data Source)
