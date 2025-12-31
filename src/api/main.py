@@ -3,14 +3,15 @@ from fastapi.middleware.cors import CORSMiddleware
 import sys
 from pathlib import Path
 from typing import Optional
+import pandas as pd
+from datetime import datetime, timedelta
 
 # 1. Setup Path to import your scripts from the project root
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.append(str(PROJECT_ROOT))
 
 # 2. Import the decision logic
-# from src.production_phase.decision_logic import get_optimized_forecast
-from src.production_phase.decision_logic_distributed import get_optimized_forecast
+from src.production_phase.decision_logic_distributed import DistributedOrchestrator
 
 app = FastAPI(title="Renewable Energy Forecast API")
 
@@ -21,6 +22,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# 4. Instantiate the Orchestrator once
+orchestrator = DistributedOrchestrator()
 
 @app.get("/")
 def home():
@@ -34,30 +38,60 @@ def get_smart_forecast(
 ):
     """
     Smart Endpoint: Checks Carbon -> Picks Model -> Returns Forecast
+    Includes DOUBLE FALLBACK:
+    1. Primary (XGBoost) -> Handled by Orchestrator
+    2. Secondary (Holt-Winters) -> Handled by Orchestrator
+    3. Emergency (Static Data) -> Handled here in main.py
     """
     print(f"📡 Request: {country_code} (Carbon Override: {carbon_mode})")
 
-    # 1. Call your Decision Logic
     try:
-        df, metadata = get_optimized_forecast(country_code, carbon_mode=carbon_mode)
-    except Exception as e:
-        print(f"❌ Error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-    
-    if df is None or df.empty:
-        raise HTTPException(status_code=404, detail="No forecast data available")
-    
-    # 2. Format Data for React (Convert DataFrame to JSON-friendly list)
-    df_clean = df.reset_index()
-    # Convert timestamps to strings
-    df_clean["datetime_utc"] = df_clean["datetime_utc"].dt.strftime("%Y-%m-%d %H:%M:%S")
-    
-    forecast_list = df_clean.to_dict(orient="records")
-    
-    # 3. Return the full package
-    return {
-        "metadata": metadata,  # React uses this to show the "Eco Mode" badge
-        "forecast": forecast_list
-    }
+        # --- LEVEL 1 & 2: Try to get data from Orchestrator (XGBoost or Holt-Winters) ---
+        df, metadata = orchestrator.get_optimized_forecast(country_code, carbon_mode=carbon_mode)
+        
+        if df is None or df.empty:
+            raise ValueError("Received empty forecast from Orchestrator")
 
-# To run: uvicorn src.api.main:app --reload
+        # --- SUCCESS PATH ---
+        # Format Data for React (Convert DataFrame to JSON-friendly list)
+        df_clean = df.reset_index()
+        # Ensure datetime is formatted as string
+        if 'datetime_utc' in df_clean.columns:
+            df_clean["datetime_utc"] = df_clean["datetime_utc"].dt.strftime("%Y-%m-%d %H:%M:%S")
+        
+        forecast_list = df_clean.to_dict(orient="records")
+        
+        return {
+            "metadata": metadata, 
+            "forecast": forecast_list
+        }
+
+    except Exception as e:
+        # --- LEVEL 3: EMERGENCY STATIC FALLBACK ---
+        # If both models failed (Orchestrator raised an error), we catch it here.
+        print(f"🔥 CRITICAL SYSTEM FAILURE: {e}")
+        print("🛡️ ACTIVATING EMERGENCY STATIC FALLBACK")
+
+        # Generate 24 hours of safe "dummy" data so the frontend doesn't crash
+        base_time = datetime.now()
+        static_forecast = []
+        for i in range(24):
+            time_point = base_time + timedelta(hours=i)
+            static_forecast.append({
+                "datetime_utc": time_point.strftime("%Y-%m-%d %H:%M:%S"),
+                "predicted_generation_mw": 0.0,  # Return 0 or a safe average
+                "lower_bound": 0.0,
+                "upper_bound": 0.0
+            })
+
+        return {
+            "metadata": {
+                "selected_model": "Emergency Mode (Static Fallback)",
+                "carbon_intensity": "UNKNOWN",
+                "reason": f"System Failure: {str(e)}",
+                "status": "Critical - All Services Down"
+            },
+            "forecast": static_forecast
+        }
+
+# To run: uvicorn src.api.main:app --host 0.0.0.0 --port 8000

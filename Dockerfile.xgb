@@ -1,0 +1,20 @@
+# Dockerfile.xgb
+FROM python:3.9-slim
+
+WORKDIR /app
+
+# Install dependencies for XGBoost
+RUN pip install fastapi uvicorn pandas xgboost joblib scikit-learn
+
+# Copy source code and models
+COPY src/ /app/src/
+COPY data /app/data
+COPY models/ /app/models/
+COPY config.py /app/
+
+# Expose port 8001
+EXPOSE 8001
+
+# Run the XGBoost Service
+# IMPORTANT: Ensure 'src.api.xgb_service' matches actual filename
+CMD ["uvicorn", "src.api.xgboost_service:app", "--host", "0.0.0.0", "--port", "8001"]
