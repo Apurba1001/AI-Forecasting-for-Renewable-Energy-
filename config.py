@@ -4,14 +4,25 @@ import os
 from pathlib import Path
 
 # --- PATHS ---
-# Since this file is now in the ROOT, the parent is the root itself.
 PROJECT_ROOT = Path(__file__).resolve().parent
+
+# --- SETTINGS FOR RAW DATA INGESTION ---
+# The specific file where raw data lives
+DATA_FILE_RAW = PROJECT_ROOT / "data" / "01_raw" / "generation_2024_raw.csv"
+
+# Target countries for raw data ingestion from ENTSOE platform
+TARGET_COUNTRIES = [
+    "AT", "BE", "BG", "CH", "CZ", "DE", "DK", "EE", "ES", "FI", 
+    "FR", "GR", "HR", "HU", "IE", "IT", "LT", "LU", "LV", "NL", 
+    "NO", "PL", "PT", "RO", "SE", "SI", "SK", "UK"
+]
+TARGET_COLS = ["Solar", "Wind Onshore", "Wind Offshore"]
+START_DATE = "2024-01-01"
+END_DATE = "2025-01-01"
 
 # --- GLOBAL SETTINGS ---
 TARGET_COUNTRY = "AT"
-TARGET_COLS = ["Solar", "Wind Onshore", "Wind Offshore"]
 
-DATA_FILE = PROJECT_ROOT / "data" / "01_raw" / "generation_2024_raw.csv"
 
 # --- 🔴 FIX IS HERE 🔴 ---
 # Point to the specific subfolder where the .pkl files are.
