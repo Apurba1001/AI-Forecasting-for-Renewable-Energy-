@@ -35,7 +35,7 @@ class HoltWintersForecaster(BaseForecaster):
             print(f"Error loading {filename}: {e}")
             return None
 
-    def predict(self, country_code: str) -> pd.DataFrame:
+    def predict(self, country_code: str, forecast_date = None) -> pd.DataFrame:
         """
         Generates a standard 24h profile (Midnight to Midnight) for the current date.
         Returns the DataFrame for the API/Orchestrator to use.
@@ -43,8 +43,12 @@ class HoltWintersForecaster(BaseForecaster):
         print(f"\n🔮 Generating Daily Forecast for {country_code} (Lightweight)...")
         
         # Define "Today" from 00:00 to 23:00 UTC
-        today_midnight = pd.Timestamp.now(tz="UTC").normalize()
-        future_index = pd.date_range(start=today_midnight, periods=24, freq="h")
+        # Unified date logic (same as XGBoost + your function)
+        if forecast_date is None:
+            real_start = pd.Timestamp.now(tz="UTC").normalize()
+        else:
+            real_start = pd.Timestamp(forecast_date, tz="UTC").normalize()
+        future_index = pd.date_range(start=real_start, periods=24, freq="h")
         
         forecasts = {}
         

@@ -531,8 +531,8 @@ try:
         sys.path.insert(0, str(project_root))
     
     # Now import from src.production_phase
-    from src.production_phase.predict_lightweight import generate_forecast as generate_lightweight_forecast
-    from src.production_phase.predict_xgboost import generate_forecast as generate_xgb_forecast
+    from src.production_phase.predict_lightweight import HoltWintersForecaster
+    from src.production_phase.predict_xgboost import XGBoostForecaster
     
     PREDICTIONS_AVAILABLE = True
 except ImportError as e:
@@ -595,6 +595,7 @@ def generate_forecast(country, energy_source, model_type, forecast_date, forecas
         interval_hours: Forecast interval (1h, 3h, 6h, 12h, 24h)
     """
     try:
+        forecast_df = None 
         if not PREDICTIONS_AVAILABLE:
             st.error("Prediction modules not available. Please check your imports.")
             return None
@@ -634,17 +635,25 @@ def generate_forecast(country, energy_source, model_type, forecast_date, forecas
         
         
 # Note: Your predict functions need to accept a date parameter
-        if model_type == "Low Cost":
-            # Use Holt-Winters lightweight model
-            forecast_df = generate_lightweight_forecast(country_code)
-        else:
-            # Use XGBoost high-cost model
-            forecast_df = generate_xgb_forecast(country_code)
-        
+         
+        try:
+            if model_type == "Low Cost":
+                forecaster = HoltWintersForecaster()
+                forecast_df = forecaster.predict(country_code, forecast_date=forecast_date)
+            else:
+                forecaster = XGBoostForecaster()
+                forecast_df = forecaster.predict(country_code, forecast_date=forecast_date)
+        except Exception as e:
+            st.error(f"Error running forecaster: {e}")
+            import traceback
+            st.code(traceback.format_exc())
+            return None
+
         if forecast_df is None or forecast_df.empty:
             st.error(f"No forecast generated for {country_code}")
             return None
-        
+
+    
         # Extract the specific energy source column
         energy_col_map = {
             "Wind Onshore": "Wind_Onshore",
@@ -722,6 +731,16 @@ def generate_forecast(country, energy_source, model_type, forecast_date, forecas
         import traceback
         st.code(traceback.format_exc())
         return None
+    
+    # DEBUG: Check what we got
+    st.write(f"DEBUG: forecast_df type: {type(forecast_df)}")
+    st.write(f"DEBUG: forecast_df is None: {forecast_df is None}")
+    if forecast_df is not None:
+        st.write(f"DEBUG: forecast_df.empty: {forecast_df.empty}")
+        st.write(f"DEBUG: forecast_df shape: {forecast_df.shape}")
+        st.write(f"DEBUG: forecast_df columns: {forecast_df.columns.tolist()}")
+        st.write(f"DEBUG: First few rows:")
+        st.dataframe(forecast_df.head())
 
 # Title and subtitle
 st.title("⚡ Renewable Energy Forecast System")

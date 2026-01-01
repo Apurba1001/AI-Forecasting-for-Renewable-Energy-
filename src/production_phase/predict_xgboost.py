@@ -71,7 +71,7 @@ class XGBoostForecaster(BaseForecaster):
         return row_df[feature_names]
 
     # --- MAIN LOOP BECOMES THE 'predict' METHOD ---
-    def predict(self, country_code: str) -> pd.DataFrame:
+    def predict(self, country_code: str, forecast_date=None) -> pd.DataFrame:
         # 1. Load Data (Using the inherited method from BaseForecaster)
         full_df = self._get_data() 
         full_df["datetime_utc"] = pd.to_datetime(full_df["datetime_utc"], utc=True)
@@ -83,8 +83,11 @@ class XGBoostForecaster(BaseForecaster):
 
         country_history = country_history.set_index("datetime_utc").sort_index()
         
-        # 2. Setup Dates (Same as your original)
-        real_start = pd.Timestamp.now(tz="UTC").normalize()
+        # 2. Setup Dates (Unified forecast_date logic)
+        if forecast_date is None:
+            real_start = pd.Timestamp.now(tz="UTC").normalize()
+        else:
+            real_start = pd.Timestamp(forecast_date, tz="UTC").normalize()
         real_steps = pd.date_range(start=real_start, periods=24, freq="h")
         lookup_start = real_start - pd.DateOffset(years=1)
         lookup_steps = pd.date_range(start=lookup_start, periods=24, freq="h")
