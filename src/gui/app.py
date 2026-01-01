@@ -12,7 +12,8 @@ import sys
 from pathlib import Path
 import json
 import os
-from datetime import date
+from datetime import date, timedelta
+from codecarbon import EmissionsTracker
 
 # Configure paths
 BASE_DIR = Path(__file__).parent.parent
@@ -573,9 +574,9 @@ def load_carbon_data(model_type):
         
         # Default values if file doesn't exist
         carbon_defaults = {
-            "lightweight": 0.02,
+            "lightweight": 0.000005,
             "eco": 0.02,
-            "performance": 0.15
+            "performance": 0.007
         }
         return carbon_defaults.get(model_type, 0.02)
     except Exception as e:
@@ -711,6 +712,9 @@ def generate_forecast(country, energy_source, model_type, forecast_date, forecas
                 confidence.append("Medium")
             else:
                 confidence.append("Low")
+            # Extract carbon emissions from DataFrame attributes
+        # Extract carbon emissions from DataFrame attributes
+        carbon_emissions = forecast_df.attrs.get('carbon_emissions_kg', 0.0)
         
         return {
             'times': times,
@@ -723,8 +727,9 @@ def generate_forecast(country, energy_source, model_type, forecast_date, forecas
             'energy_source': energy_source,
             'interval': f"{interval_hours}h",
             'model_type': model_type,
-            'full_forecast_df': forecast_df  # Store full forecast for context
-        }
+            'full_forecast_df': forecast_df,  # Store full forecast for context
+            'carbon_emissions_kg': carbon_emissions
+            }
             
     except Exception as e:
         st.error(f"Error generating forecast: {e}")
@@ -732,16 +737,6 @@ def generate_forecast(country, energy_source, model_type, forecast_date, forecas
         st.code(traceback.format_exc())
         return None
     
-    # DEBUG: Check what we got
-    st.write(f"DEBUG: forecast_df type: {type(forecast_df)}")
-    st.write(f"DEBUG: forecast_df is None: {forecast_df is None}")
-    if forecast_df is not None:
-        st.write(f"DEBUG: forecast_df.empty: {forecast_df.empty}")
-        st.write(f"DEBUG: forecast_df shape: {forecast_df.shape}")
-        st.write(f"DEBUG: forecast_df columns: {forecast_df.columns.tolist()}")
-        st.write(f"DEBUG: First few rows:")
-        st.dataframe(forecast_df.head())
-
 # Title and subtitle
 st.title("⚡ Renewable Energy Forecast System")
 st.markdown('<p class="subtitle">Multi-source forecasting for 28 European countries</p>', 
@@ -849,7 +844,7 @@ with st.sidebar:
             • Fast inference<br>
             • Lower accuracy<br>
             • Minimal emissions<br>
-            <span style="color: #059669; font-weight: bold;">{carbon_emissions:.3f} kg CO₂/request</span>
+            <span style="color: #059669; font-weight: bold;">{carbon_emissions*1000000:.4f} mg CO₂/request</span>
         </div>
         """, unsafe_allow_html=True)
     else:
@@ -861,7 +856,7 @@ with st.sidebar:
             • Slower inference<br>
             • Higher accuracy<br>
             • Increased emissions<br>
-            <span style="color: #dc2626; font-weight: bold;">{carbon_emissions:.3f} kg CO₂/request</span>
+            <span style="color: #dc2626; font-weight: bold;">{carbon_emissions*1000000:.4f} mg CO₂/request</span>
         </div>
         """, unsafe_allow_html=True)
     
@@ -912,7 +907,7 @@ if 'forecast_data' in st.session_state:
     forecast_data = st.session_state['forecast_data']
     
     # Key metrics
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3, col4, col5 = st.columns(5)
     
     with col1:
     # Get the value for the user's selected hour
@@ -983,6 +978,35 @@ if 'forecast_data' in st.session_state:
             label="Average Output",
             value=f"{avg_output:.0f} MW",
             delta=f"{(avg_output - current_output):.0f} MW"
+        )
+        
+    with col5:
+    # NEW: Carbon Emissions Display
+        carbon_emissions = forecast_data.get('carbon_emissions_kg', 0.0) if isinstance(forecast_data, dict) else 0.0
+    
+        # Color based on model type
+        if st.session_state.get('model_type') == 'Low Cost':
+            delta_color = "normal"  # Green
+            comparison = "Low Impact"
+        else:
+            delta_color = "inverse"  # Red
+            comparison = "High Impact"
+        
+        
+                # Smart display based on magnitude
+        if carbon_emissions < 0.0001:
+            value_str=f"{carbon_emissions:.2e} kg CO₂"  # Scientific notation
+        elif carbon_emissions < 0.001:
+            value_str=f"{carbon_emissions*1000000:.2f} mg CO₂"  # Milligrams
+        else:
+            value_str=f"{carbon_emissions*1000:.2f} g CO₂"  # Grams
+        
+        st.metric(
+            label="Carbon Footprint",
+            # Smart display based on magnitude
+            value=f"{carbon_emissions*1000000:.4f} mg CO₂",  # Always in milligrams with 4 decimals
+            delta=comparison,
+            delta_color=delta_color
         )
     
     st.divider()

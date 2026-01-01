@@ -3,6 +3,9 @@ import warnings
 import pandas as pd
 import sys
 from pathlib import Path
+from codecarbon import EmissionsTracker
+
+
 # Add the project root to the Python path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.append(str(PROJECT_ROOT))
@@ -44,6 +47,15 @@ class HoltWintersForecaster(BaseForecaster):
         
         # Define "Today" from 00:00 to 23:00 UTC
         # Unified date logic (same as XGBoost + your function)
+                # Start tracking emissions
+        tracker = EmissionsTracker(
+            project_name="renewable_energy_forecast",
+            measure_power_secs=1,
+            save_to_file=False,
+            logging_logger=None  # Suppress logs
+        )
+        tracker.start()
+
         if forecast_date is None:
             real_start = pd.Timestamp.now(tz="UTC").normalize()
         else:
@@ -76,11 +88,16 @@ class HoltWintersForecaster(BaseForecaster):
             except Exception as e:
                 print(f"   ❌ Failed to predict {target}: {e}")
 
+        
+        emissions_kg = tracker.stop()
         # Final Assembly
         if forecasts:
             result_df = pd.DataFrame(forecasts)
             result_df["Total_Generation"] = result_df.sum(axis=1)
             result_df.index.name = "datetime_utc"
+            
+            # Store emissions as attribute (for GUI to access)
+            result_df.attrs['carbon_emissions_kg'] = emissions_kg
             
             # Save to CSV for debugging (Traceability)
             output_file = OUTPUT_DIR / f"forecast_{country_code}.csv"

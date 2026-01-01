@@ -3,6 +3,8 @@ import joblib
 import warnings
 import sys
 from pathlib import Path
+from codecarbon import EmissionsTracker
+
 # Add the project root to the Python path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.append(str(PROJECT_ROOT))
@@ -72,6 +74,16 @@ class XGBoostForecaster(BaseForecaster):
 
     # --- MAIN LOOP BECOMES THE 'predict' METHOD ---
     def predict(self, country_code: str, forecast_date=None) -> pd.DataFrame:
+        
+                # Start tracking
+        tracker = EmissionsTracker(
+            project_name="renewable_energy_forecast",
+            measure_power_secs=1,
+            save_to_file=False,
+            logging_logger=None
+        )
+        tracker.start()
+        
         # 1. Load Data (Using the inherited method from BaseForecaster)
         full_df = self._get_data() 
         full_df["datetime_utc"] = pd.to_datetime(full_df["datetime_utc"], utc=True)
@@ -117,14 +129,21 @@ class XGBoostForecaster(BaseForecaster):
 
             all_forecasts[clean_target] = predictions
 
+        # Stop tracking
+        emissions_kg = tracker.stop()
+        
         # 3. Final Assembly
         if all_forecasts:
             res_df = pd.DataFrame(all_forecasts, index=real_steps)
             res_df["Total_Generation"] = res_df.sum(axis=1)
             res_df.index.name = "datetime_utc"
+            # Store emissions
+            res_df.attrs['carbon_emissions_kg'] = emissions_kg
+            
             return res_df
-        
-        return pd.DataFrame()
+        else:
+            tracker.stop()  
+            return pd.DataFrame()
     
 if __name__ == "__main__":
     from config import TARGET_COUNTRY   #Target country from config for test purposes
