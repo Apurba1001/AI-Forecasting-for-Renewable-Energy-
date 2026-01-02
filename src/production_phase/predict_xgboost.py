@@ -30,7 +30,6 @@ class XGBoostForecaster(BaseForecaster):
         return df
 
     def _get_prediction_row(self, history_df, target_col, real_dt, lookup_dt, country_code, feature_names):
-        # ... [Paste your exact get_prediction_row_mapped logic here] ...
         # Features from REAL DATE (2025)
         row_df = pd.DataFrame(index=[real_dt])
         row_df = self._add_time_features(row_df)
