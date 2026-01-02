@@ -16,7 +16,7 @@ warnings.filterwarnings("ignore")
 class XGBoostForecaster(BaseForecaster):
     def __init__(self):
         super().__init__()
-        # We don't load the model in __init__ because you have multiple models 
+        # We don't load the model in __init__ because we have multiple models 
         # (one for Solar, one for Wind, etc.)
 
     # --- YOUR HELPER FUNCTIONS BECOME INTERNAL METHODS ---
@@ -72,7 +72,7 @@ class XGBoostForecaster(BaseForecaster):
         return row_df[feature_names]
 
     # --- MAIN LOOP BECOMES THE 'predict' METHOD ---
-    def predict(self, country_code: str, forecast_date=None) -> pd.DataFrame:
+    def predict(self, country_code: str, forecast_date=None) -> dict:
         
                 # Start tracking
         tracker = EmissionsTracker(
@@ -90,7 +90,10 @@ class XGBoostForecaster(BaseForecaster):
         
         country_history = full_df[full_df["Country"] == country_code].copy()
         if country_history.empty:
-            return pd.DataFrame()
+            return {
+                "forecast data": pd.DataFrame(),  # Empty DataFrame
+                "emissions kg": 0.0               # Zero emissions
+            }
 
         country_history = country_history.set_index("datetime_utc").sort_index()
         
@@ -103,7 +106,7 @@ class XGBoostForecaster(BaseForecaster):
         lookup_start = real_start - pd.DateOffset(years=1)
         lookup_steps = pd.date_range(start=lookup_start, periods=24, freq="h")
 
-        all_forecasts = {}
+        forecasts = {}
 
         for target in TARGET_COLS:
             clean_target = target.replace(' ', '_')
@@ -126,23 +129,31 @@ class XGBoostForecaster(BaseForecaster):
                 temp_history.loc[lookup_dt, target] = pred
                 predictions.append(pred)
 
-            all_forecasts[clean_target] = predictions
+            forecasts[clean_target] = predictions
 
         # Stop tracking
         emissions_kg = tracker.stop()
         
         # 3. Final Assembly
-        if all_forecasts:
-            res_df = pd.DataFrame(all_forecasts, index=real_steps)
-            res_df["Total_Generation"] = res_df.sum(axis=1)
-            res_df.index.name = "datetime_utc"
+        if forecasts:
+            result_df = pd.DataFrame(forecasts, index=real_steps)
+            result_df["Total_Generation"] = result_df.sum(axis=1)
+            result_df.index.name = "datetime_utc"
             # Store emissions
-            res_df.attrs['carbon_emissions_kg'] = emissions_kg
+            #res_df.attrs['carbon_emissions_kg'] = emissions_kg
             
-            return res_df
+            return {
+                "forecast_data" : result_df,
+                "emissions_kg" : emissions_kg
+            }
+
         else:
+            print(f"   ⚠️ No models found for {country_code}")
             tracker.stop()  
-            return pd.DataFrame()
+            return {
+                "forecast_data": pd.DataFrame(),  # Empty DataFrame
+                "emissions_kg": 0.0               # Zero emissions
+            }
     
 if __name__ == "__main__":
     from config import TARGET_COUNTRY   #Target country from config for test purposes
@@ -157,13 +168,16 @@ if __name__ == "__main__":
     # Notice we don't need to know about lags or model paths here
     forecast_results = forecaster.predict(TARGET_COUNTRY)
     
-    # 3. Handle the output
-    if not forecast_results.empty:
+    # 2. Call the standardized predict method
+    results = forecaster.predict(TARGET_COUNTRY)
+
+    df_forecast_results = results["forecast_data"]
+    emissions = results["emissions_kg"]
+    
+    if not df_forecast_results.empty:
         print("\n📊 Forecast Summary:")
-        print(forecast_results.head(24))
-        print(f"\n✅ Successfully generated {len(forecast_results)} hours of data.")
-        
-        # Save forecast result as csv if needed
-        # forecast_results.to_csv("test_output.csv")
+        print(df_forecast_results.head(24))
+        print(f"\n✅ Successfully generated {len(df_forecast_results)} hours of data.")
+        print(f"🌱 Execution Carbon Footprint: {emissions:.10f} kg CO2")
     else:
-        print("❌ Forecast generation failed. Check logs for details.")
+        print("❌ No data generated.")

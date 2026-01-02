@@ -38,7 +38,7 @@ class HoltWintersForecaster(BaseForecaster):
             print(f"Error loading {filename}: {e}")
             return None
 
-    def predict(self, country_code: str, forecast_date = None) -> pd.DataFrame:
+    def predict(self, country_code: str, forecast_date = None) -> dict:
         """
         Generates a standard 24h profile (Midnight to Midnight) for the current date.
         Returns the DataFrame for the API/Orchestrator to use.
@@ -97,16 +97,24 @@ class HoltWintersForecaster(BaseForecaster):
             result_df.index.name = "datetime_utc"
             
             # Store emissions as attribute (for GUI to access)
-            result_df.attrs['carbon_emissions_kg'] = emissions_kg
+            # result_df.attrs['carbon_emissions_kg'] = emissions_kg
             
             # Save to CSV for debugging (Traceability)
-            output_file = OUTPUT_DIR / f"forecast_{country_code}.csv"
-            result_df.to_csv(output_file)
+            # output_file = OUTPUT_DIR / f"forecast_{country_code}.csv"
+            # result_df.to_csv(output_file)
             
-            return result_df
+            return {
+                "forecast_data" : result_df,
+                "emissions_kg" : emissions_kg
+            }
         else:
             print(f"   ⚠️ No models found for {country_code}. Check 'models/lightweight' folder.")
-            return pd.DataFrame() # Return empty DF instead of None for better API handling
+            
+            # Return an empty structure that matches the "success" case
+            return {
+                "forecast_data": pd.DataFrame(),  # Empty DataFrame
+                "emissions_kg": 0.0               # Zero emissions
+            }
 
 # ==========================================
 # EXAMPLE USAGE
@@ -117,10 +125,18 @@ if __name__ == "__main__":
     # 1. Instantiate the class
     forecaster = HoltWintersForecaster()
     
+    print(f"--- Starting Forecast Generation for {TARGET_COUNTRY} ---")
+
     # 2. Call the standardized predict method
-    forecast_results = forecaster.predict(TARGET_COUNTRY)
+    results = forecaster.predict(TARGET_COUNTRY)
+
+    df_forecast_results = results["forecast_data"]
+    emissions = results["emissions_kg"]
     
-    if not forecast_results.empty:
+    if not df_forecast_results.empty:
         print("\n📊 Forecast Summary:")
-        print(forecast_results.head(24))
-        print(f"\n✅ Successfully generated {len(forecast_results)} hours of data.")
+        print(df_forecast_results.head(24))
+        print(f"\n✅ Successfully generated {len(df_forecast_results)} hours of data.")
+        print(f"🌱 Execution Carbon Footprint: {emissions:.10f} kg CO2")
+    else:
+        print("❌ No data generated.")
