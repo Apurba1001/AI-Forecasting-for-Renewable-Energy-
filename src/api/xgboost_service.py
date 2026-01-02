@@ -6,10 +6,19 @@ forecaster = XGBoostForecaster()
 
 @app.get("/predict/{country_code}")
 def get_prediction(country_code: str):
-    # The API layer is now extremely 'thin' (Good Architecture)
+    # Get the dictionary result
     result = forecaster.predict(country_code.upper())
-    
-    if result.empty:
+    # unpack the dictionary
+    df_forecast = result["forecast_data"]
+    emissions = result["emissions_kg"]
+
+
+    if df_forecast.empty:
         raise HTTPException(status_code=404, detail="Data not found for this country")
         
-    return result.reset_index().to_dict(orient="records")
+# 3. Return both to the API caller
+    return {
+        "model": "Holt-Winters", # or "XGBoost" for the other file
+        "execution_carbon_kg": emissions, # <--- The number you wanted!
+        "data": df_forecast.reset_index().to_dict(orient="records")
+    }
