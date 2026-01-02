@@ -42,6 +42,15 @@ class DistributedOrchestrator:
             # Re-raise to let the main logic decide on fallback
             raise ConnectionError(f"Service unreachable at {base_url}: {e}")
 
+
+
+    def get_live_grid_status(self, carbon_mode=None):
+        """
+        Lightweight method to just read the Virtual Carbon Sensor.
+        Does NOT trigger any forecast models.
+        """
+        return self.sensor.get_current_carbon_intensity(force_mode=carbon_mode)
+
     def get_optimized_forecast(self, country_code, carbon_mode=None):
         """
         Main Orchestrator Logic:

@@ -4,6 +4,10 @@ from src.production_phase.predict_lightweight import HoltWintersForecaster
 app = FastAPI(title="Holt Winters Prediction Service")
 forecaster = HoltWintersForecaster()
 
+@app.get("/health")
+def health_check():
+    return {"status": "healthy"}
+
 @app.get("/predict/{country_code}")
 def get_prediction(country_code: str):
     # Get the dictionary result

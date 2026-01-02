@@ -1,4 +1,6 @@
 from fastapi import FastAPI, HTTPException, Query
+import os
+import requests
 from fastapi.middleware.cors import CORSMiddleware
 import sys
 from pathlib import Path
@@ -15,6 +17,9 @@ from src.production_phase.decision_logic_distributed import DistributedOrchestra
 
 app = FastAPI(title="Renewable Energy Forecast API")
 
+# initialize for live carbon logic
+decision_logic = DistributedOrchestrator()
+
 # 3. Allow React Frontend (localhost:3000) to connect
 app.add_middleware(
     CORSMiddleware,
@@ -29,6 +34,47 @@ orchestrator = DistributedOrchestrator()
 @app.get("/")
 def home():
     return {"status": "API is running. Use /forecast/optimized/{country_code}"}
+
+
+@app.get("/health")
+def system_health():
+    status = {"orchestrator": "🟢 Online", "xgb_service": "🔴 Offline", "hw_service": "🔴 Offline"}
+    
+    # 1. Get URLs and strip trailing slashes to be safe
+    xgb_base = os.getenv("XGB_SERVICE_URL", "http://xgb_predict_service:8001/predict")
+    hw_base = os.getenv("HW_SERVICE_URL", "http://hw_predict_service:8002/predict")
+
+    # 2. Build health URLs by removing '/predict' and adding '/health'
+    # This works regardless of slashes
+    xgb_health = xgb_base.rstrip("/").replace("/predict", "") + "/health"
+    hw_health = hw_base.rstrip("/").replace("/predict", "") + "/health"
+
+    # Check XGB
+    try:
+        # Diagnostic print - check your docker logs to see what URL is being called
+        print(f"DEBUG: Pinging XGB health at: {xgb_health}")
+        if requests.get(xgb_health, timeout=1).status_code == 200:
+            status["xgb_service"] = "🟢 Online"
+    except Exception as e:
+        print(f"DEBUG: XGB Health failed: {e}")
+
+    # Check HW
+    try:
+        if requests.get(hw_health, timeout=1).status_code == 200:
+            status["hw_service"] = "🟢 Online"
+    except: pass
+    
+    return status
+
+@app.get("/carbon-live")
+def carbon_live_readout(
+    # Add this parameter so the GUI can force the mode
+    carbon_mode: Optional[str] = Query(None, description="Force HIGH or LOW")
+):
+    """
+    Returns the real-time grid status from the Carbon Simulator.
+    """
+    return decision_logic.get_live_grid_status(carbon_mode=carbon_mode)
 
 @app.get("/forecast/optimized/{country_code}")
 def get_smart_forecast(

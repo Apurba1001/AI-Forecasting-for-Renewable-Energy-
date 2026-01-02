@@ -4,6 +4,10 @@ from src.production_phase.predict_xgboost import XGBoostForecaster
 app = FastAPI(title="XGBoost Prediction Service")
 forecaster = XGBoostForecaster()
 
+@app.get("/health")
+def health_check():
+    return {"status": "healthy"}
+
 @app.get("/predict/{country_code}")
 def get_prediction(country_code: str):
     # Get the dictionary result
