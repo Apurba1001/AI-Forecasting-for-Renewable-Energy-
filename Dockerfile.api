@@ -5,7 +5,12 @@ WORKDIR /app
 
 # Install dependencies for the API Gateway
 # We need requests to talk to other containers
-RUN pip install fastapi uvicorn requests pandas
+RUN pip install fastapi uvicorn requests pandas codecarbon
+
+
+# Copy requirements and install
+COPY requirements_deployment.txt .
+RUN pip install --no-cache-dir -r requirements_deployment.txt
 
 # Copy the source code
 COPY src/ /app/src/
@@ -14,6 +19,9 @@ COPY config.py /app/
 
 # Expose port 8000
 EXPOSE 8000
+
+# Health check
+HEALTHCHECK CMD curl --fail http://localhost:8000/health || exit 1
 
 # Run the Orchestrator API
 CMD ["uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8000"]

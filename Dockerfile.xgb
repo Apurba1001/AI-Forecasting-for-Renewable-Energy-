@@ -4,7 +4,9 @@ FROM python:3.9-slim
 WORKDIR /app
 
 # Install dependencies for XGBoost
-RUN pip install fastapi uvicorn pandas xgboost joblib scikit-learn
+RUN pip install fastapi uvicorn pandas xgboost joblib scikit-learn codecarbon
+
+
 
 # Copy source code and models
 COPY src/ /app/src/
@@ -14,6 +16,8 @@ COPY config.py /app/
 
 # Expose port 8001
 EXPOSE 8001
+
+HEALTHCHECK CMD curl --fail http://localhost:8001/health || exit 1
 
 # Run the XGBoost Service
 # IMPORTANT: Ensure 'src.api.xgb_service' matches actual filename
