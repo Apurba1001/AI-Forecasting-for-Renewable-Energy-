@@ -23,3 +23,6 @@ setuptools
 
 # External Data
 entsoe-py==0.7.8
+
+# Carbon tracking
+codecarbon==2.3.4
