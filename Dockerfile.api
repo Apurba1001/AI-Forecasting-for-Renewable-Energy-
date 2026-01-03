@@ -3,17 +3,21 @@ FROM python:3.9-slim
 
 WORKDIR /app
 
-# Install dependencies for the API Gateway
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
 # We need requests to talk to other containers
-RUN pip install fastapi uvicorn requests pandas codecarbon
+RUN pip install fastapi uvicorn requests pandas codecarbon --no-cache-dir
 
 
 # Copy requirements and install
 COPY requirements_deployment.txt .
 RUN pip install --no-cache-dir -r requirements_deployment.txt
 
+COPY src/production_phase/decision_logic_distributed.py /app/src/production_phase/decision_logic_distributed.py
 # Copy the source code
-COPY src/ /app/src/
+COPY src /app/src
 # Copy config if it exists in root
 COPY config.py /app/
 
@@ -21,7 +25,8 @@ COPY config.py /app/
 EXPOSE 8000
 
 # Health check
-HEALTHCHECK CMD curl --fail http://localhost:8000/health || exit 1
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+  CMD curl --fail http://localhost:8000/health || exit 1
 
 # Run the Orchestrator API
 CMD ["uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
