@@ -9,8 +9,8 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # We need requests to talk to other containers
-RUN pip install fastapi uvicorn requests pandas codecarbon streamlit --no-cache-dir
-
+RUN pip install fastapi uvicorn requests pandas codecarbon --no-cache-dir
+RUN pip install --no-cache-dir "streamlit>=1.37.0" plotly
 
 
 # Copy the source code

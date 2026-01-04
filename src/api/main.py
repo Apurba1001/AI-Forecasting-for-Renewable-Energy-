@@ -49,6 +49,7 @@ app.add_middleware(
 # ------------------------------------------------------------------
 
 orchestrator = DistributedOrchestrator()
+decision_logic = DistributedOrchestrator()
 
 if not hasattr(orchestrator, "get_optimized_forecast"):
     raise RuntimeError("Invalid DistributedOrchestrator loaded")
@@ -74,6 +75,16 @@ def health_check():
             "hw_service": orchestrator.HW_URL
         }
     }
+    
+@app.get("/carbon-live")
+def carbon_live_readout(
+    # Add this parameter so the GUI can force the mode
+    carbon_mode: Optional[str] = Query(None, description="Force HIGH or LOW")
+):
+    """
+    Returns the real-time grid status from the Carbon Simulator.
+    """
+    return decision_logic.get_live_grid_status(carbon_mode=carbon_mode)
 
 @app.get("/forecast/optimized/{country_code}")
 def get_smart_forecast(
