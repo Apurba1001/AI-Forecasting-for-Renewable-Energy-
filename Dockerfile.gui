@@ -1,29 +1,31 @@
-# Dockerfile.api
-FROM python:3.9-slim
+# Dockerfile.gui
+FROM python:3.11-slim
 
 WORKDIR /app
 
-#Install dependencies for the API Gateway
+# 1. Install system tools (curl is useful for healthchecks inside container)
 RUN apt-get update && apt-get install -y \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# We need requests to talk to other containers
-RUN pip install fastapi uvicorn requests pandas codecarbon --no-cache-dir
+# 2. Copy requirements
+COPY requirements_deployment.txt .
+
+# 3. Install Python dependencies
+# We forcefully upgrade Streamlit to >=1.37.0 to support the live health check (@st.fragment)
+RUN pip install --no-cache-dir -r requirements_deployment.txt
 RUN pip install --no-cache-dir "streamlit>=1.37.0" plotly
 
-
-# Copy the source code
+# 4. Copy the entire source code folder
 COPY src/ /app/src/
 # Copy config if it exists in root
 COPY config.py /app/
 COPY models/ /app/models/
 
 
+# 5. Expose the Streamlit port
 EXPOSE 8501
 
-# Health check (Streamlit health endpoint)
-HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-  CMD curl --fail http://localhost:8501/_stcore/health || exit 1
-  
-CMD ["streamlit", "run", "src/gui/app.py", "--server.port=8501", "--server.address=0.0.0.0", "--server.headless=true"]
+# 6. Run the specific GUI script
+# Note the path: src/gui/app_gui_deployment.py
+CMD ["streamlit", "run", "src/gui/app_gui_deployment.py", "--server.port=8501", "--server.address=0.0.0.0"]

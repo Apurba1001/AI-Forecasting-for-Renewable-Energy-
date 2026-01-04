@@ -22,6 +22,10 @@ def health():
         raise HTTPException(status_code=503, detail="Forecaster not initialized")
     return {"status": "healthy", "model": "Holt-Winters"}
 
+@app.get("/health")
+def health_check():
+    return {"status": "healthy"}
+
 @app.get("/predict/{country_code}")
 def get_prediction(country_code: str):
     """

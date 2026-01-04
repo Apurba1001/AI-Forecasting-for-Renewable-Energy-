@@ -1,4 +1,6 @@
 from fastapi import FastAPI, HTTPException, Query
+import os
+import requests
 from fastapi.middleware.cors import CORSMiddleware
 import sys
 from pathlib import Path
@@ -37,6 +39,10 @@ app = FastAPI(
     version="2.0.0",
 )
 
+# initialize for live carbon logic
+decision_logic = DistributedOrchestrator()
+
+# 3. Allow React Frontend (localhost:3000) to connect
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -64,6 +70,16 @@ logger.info("✅ DistributedOrchestrator initialized successfully")
 def home():
     return {"status": "API is running. Use /forecast/optimized/{country_code}"}
 
+@app.get("/carbon-live")
+def carbon_live_readout(
+    # Add this parameter so the GUI can force the mode
+    carbon_mode: Optional[str] = Query(None, description="Force HIGH or LOW")
+):
+    """
+    Returns the real-time grid status from the Carbon Simulator.
+    """
+    return decision_logic.get_live_grid_status(carbon_mode=carbon_mode)
+  
 @app.get("/health")
 def health_check():
     return {

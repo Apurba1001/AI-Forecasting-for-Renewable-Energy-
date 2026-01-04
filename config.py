@@ -9,6 +9,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 # --- SETTINGS FOR RAW DATA INGESTION ---
 # The specific file where raw data lives
 DATA_FILE_RAW = PROJECT_ROOT / "data" / "01_raw" / "generation_2024_raw.csv"
+DATA_FILE = DATA_FILE_RAW
 
 # Target countries for raw data ingestion from ENTSOE platform
 TARGET_COUNTRIES = [
@@ -21,7 +22,7 @@ START_DATE = "2024-01-01"
 END_DATE = "2025-01-01"
 
 # --- GLOBAL SETTINGS ---
-TARGET_COUNTRY = "AT"
+TARGET_COUNTRY = "DE"
 
 
 # --- 🔴 FIX IS HERE 🔴 ---

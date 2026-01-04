@@ -33,6 +33,10 @@ def health():
     return {"status": "healthy", "model": "XGBoost"}
 
 
+@app.get("/health")
+def health_check():
+    return {"status": "healthy"}
+
 @app.get("/predict/{country_code}")
 def get_prediction(country_code: str):
     """

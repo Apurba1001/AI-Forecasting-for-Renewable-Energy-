@@ -96,7 +96,15 @@ class DistributedOrchestrator:
         """
         return self.sensor.get_current_carbon_intensity(force_mode=carbon_mode)
 
-    # ✅ FIXED: This is the method your main.py is calling!
+
+
+    def get_live_grid_status(self, carbon_mode=None):
+        """
+        Lightweight method to just read the Virtual Carbon Sensor.
+        Does NOT trigger any forecast models.
+        """
+        return self.sensor.get_current_carbon_intensity(force_mode=carbon_mode)
+
     def get_optimized_forecast(self, country_code, carbon_mode=None):
         """
         Main Orchestrator Logic:

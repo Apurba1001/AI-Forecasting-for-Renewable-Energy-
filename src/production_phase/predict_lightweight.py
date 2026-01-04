@@ -100,8 +100,8 @@ class HoltWintersForecaster(BaseForecaster):
             # result_df.attrs['carbon_emissions_kg'] = emissions_kg
             
             # Save to CSV for debugging (Traceability)
-            # output_file = OUTPUT_DIR / f"forecast_{country_code}.csv"
-            # result_df.to_csv(output_file)
+            output_file = OUTPUT_DIR / f"forecast_{country_code}.csv"
+            result_df.to_csv(output_file)
             
             return {
                 "forecast_data" : result_df,
