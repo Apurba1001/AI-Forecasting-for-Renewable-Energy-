@@ -15,6 +15,8 @@ import json
 import os
 from datetime import date, timedelta
 from codecarbon import EmissionsTracker
+import time
+import threading
 
 # Configure paths
 BASE_DIR = Path(__file__).parent.parent
@@ -31,6 +33,10 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+@st.fragment(run_every=10)
+def live_monitor_fragment():
+    draw_live_monitor()
 
 # Custom CSS - Modern, Professional Design (UNCHANGED)
 st.markdown("""
@@ -81,6 +87,59 @@ st.markdown("""
         margin-top: -8px;
         margin-bottom: 32px;
         font-weight: 400;
+    }
+    
+        /* ============================
+    LIVE SYSTEM MONITOR (SIDEBAR)
+    ============================ */
+
+    [data-testid="stSidebar"] .live-monitor-container {
+        background: rgba(15, 23, 42, 0.9) !important;
+        border: 1px solid #334155 !important;
+        border-radius: 12px !important;
+        padding: 14px !important;
+        margin-bottom: 1rem !important;
+    }
+
+    [data-testid="stSidebar"] .intensity-card {
+        border-radius: 10px !important;
+        padding: 12px !important;
+        color: white !important;
+        margin-bottom: 12px !important;
+    }
+
+    [data-testid="stSidebar"] .intensity-label {
+        font-size: 0.75rem !important;
+        opacity: 0.85 !important;
+        margin-bottom: 4px !important;
+    }
+
+    [data-testid="stSidebar"] .intensity-value {
+        font-size: 1.6rem !important;
+        font-weight: 700 !important;
+        line-height: 1.2 !important;
+    }
+
+    [data-testid="stSidebar"] .status-grid {
+        display: grid !important;
+        grid-template-columns: repeat(3, 1fr) !important;
+        gap: 8px !important;
+    }
+
+    [data-testid="stSidebar"] .status-box {
+        background: #020617 !important;
+        border-radius: 8px !important;
+        padding: 6px !important;
+        text-align: center !important;
+    }
+
+    [data-testid="stSidebar"] .status-tag {
+        margin-top: 4px !important;
+        padding: 3px 6px !important;
+        border-radius: 999px !important;
+        font-size: 0.7rem !important;
+        font-weight: 700 !important;
+        color: white !important;
     }
     
     /* Metric Cards Enhancement */
@@ -490,6 +549,7 @@ st.markdown("""
             font-size: 1.5rem;
         }
     }
+    
     </style>
     """, unsafe_allow_html=True)
 
@@ -570,6 +630,90 @@ def load_carbon_data(model_type):
 
 API_URL = os.getenv("API_URL", "http://localhost:8000")
 
+def get_system_status():
+    status = {"ORCH": "DOWN", "XGB": "DOWN", "HW": "DOWN", "intensity": 0.0}
+
+    ORCH_URL = "http://orchestrator:8000"
+    XGB_URL = os.getenv("XGB_SERVICE_URL", "http://localhost:8001")
+    HW_URL = os.getenv("HW_SERVICE_URL", "http://localhost:8002")
+    
+        # ---- Carbon live (independent) ----
+    try:
+        carbon_resp = requests.get(f"{ORCH_URL}/carbon-live", timeout=2).json()
+        status["intensity"] = carbon_resp.get("carbon_intensity", 0.0)
+    except Exception as e:
+        print("Carbon live error:", e)
+
+    # ---- Orchestrator health ----
+    try:
+        orch_health = requests.get(f"{ORCH_URL}/health", timeout=2).json()
+        if orch_health.get("status") == "healthy":
+            status["ORCH"] = "UP"
+    except Exception as e:
+        print("Orchestrator health error:", e)
+
+    # ---- XGB health ----
+    try:
+        xgb_health = requests.get(f"{XGB_URL}/health", timeout=2).json()
+        if xgb_health.get("status") == "healthy":
+            status["XGB"] = "UP"
+    except Exception as e:
+        print("XGB health error:", e)
+
+    # ---- HW health ----
+    try:
+        hw_health = requests.get(f"{HW_URL}/health", timeout=2).json()
+        if hw_health.get("status") == "healthy":
+            status["HW"] = "UP"
+    except Exception as e:
+        print("HW health error:", e)
+
+    return status
+
+
+def draw_live_monitor():
+    # Fetch real data
+    sys_status = get_system_status()
+    
+    # Determine Status Color & Label
+    intensity = sys_status["intensity"]
+    status_label = "HIGH" if intensity > 300 else "LOW"
+    bg_gradient = "linear-gradient(135deg, #991b1b 0%, #dc2626 100%)" if status_label == "HIGH" else "linear-gradient(135deg, #065f46 0%, #10b981 100%)"
+
+    def get_tag_style(state):
+        return "background: #059669; color: white; margin-top: 4px; padding: 3px 6px; border-radius: 999px; font-size: 0.7rem; font-weight: 700; display: inline-block;" if state == "UP" else "background: #dc2626; color: white; margin-top: 4px; padding: 3px 6px; border-radius: 999px; font-size: 0.7rem; font-weight: 700; display: inline-block;"
+
+    st.html(f"""
+    <div style="background: rgba(15, 23, 42, 0.9); border: 1px solid #334155; border-radius: 12px; padding: 14px; margin-bottom: 1rem;">
+        <div style="display: flex; align-items: center; margin-bottom: 15px; color: white;">
+            <strong style="font-size: 1.1rem;">📡 Live System Monitor</strong>
+        </div>
+
+        <div style="background: {bg_gradient}; border-radius: 10px; padding: 12px; color: white; margin-bottom: 12px;">
+            <div style="font-size: 0.75rem; opacity: 0.85;">Live Grid Intensity</div>
+            <div style="font-size: 1.6rem; font-weight: 700;">
+                {intensity:.1f} <span style="font-size: 1.2rem;">gCO₂/kWh</span>
+            </div>
+            <div style="font-weight: 600; font-size: 0.8rem;">STATUS: {status_label}</div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;">
+            <div style="background: #020617; border-radius: 8px; padding: 6px; text-align: center;">
+                <div style="font-size: 0.7rem; color: #94a3b8;">ORCH</div>
+                <div style="{get_tag_style(sys_status['ORCH'])}">{sys_status['ORCH']}</div>
+            </div>
+            <div style="background: #020617; border-radius: 8px; padding: 6px; text-align: center;">
+                <div style="font-size: 0.7rem; color: #94a3b8;">XGB</div>
+                <div style="{get_tag_style(sys_status['XGB'])}">{sys_status['XGB']}</div>
+            </div>
+            <div style="background: #020617; border-radius: 8px; padding: 6px; text-align: center;">
+                <div style="font-size: 0.7rem; color: #94a3b8;">HW</div>
+                <div style="{get_tag_style(sys_status['HW'])}">{sys_status['HW']}</div>
+            </div>
+        </div>
+    </div>
+    """)
+
 def generate_forecast(country, energy_source, model_type,
                       forecast_date, forecast_time, interval_hours):
     """
@@ -608,7 +752,7 @@ def generate_forecast(country, energy_source, model_type,
         response = requests.get(
             f"{API_URL}/forecast/optimized/{country_code}",
             params=params,
-            timeout=30
+            timeout=120
         )
         response.raise_for_status()
         payload = response.json()
@@ -759,6 +903,7 @@ st.markdown('<p class="subtitle">Multi-source forecasting for 28 European countr
 
 # Sidebar configuration
 with st.sidebar:
+    
     st.header("🔧 Forecast Configuration")
     
     # Load available options
@@ -774,6 +919,13 @@ with st.sidebar:
         index=0 if "Germany" in countries else 0,
         help="Select the country for energy forecast"
     )
+    
+    # ✅ MOVE THIS HERE (after st.divider)
+    st.divider()
+    
+    live_monitor_fragment()
+    
+    st.divider()
     
     # Energy source selection - Only Solar, Wind Onshore, Wind Offshore
     energy_source = st.selectbox(

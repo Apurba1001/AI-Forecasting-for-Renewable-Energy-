@@ -15,8 +15,8 @@ services:
       - xgb_service
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
-      interval: 5
-      timeout: 2s
+      interval: "5s"
+      timeout: "2s"
       retries: 5
 
   hw_service:
@@ -43,6 +43,8 @@ services:
     ports:
       - "8501:8501"
     environment:
-      - API_URL=http://orchestrator:8000  # ✅ Use docker service name
+      - API_URL=http://orchestrator:8000
+      - XGB_SERVICE_URL=http://xgb_service:8001
+      - HW_SERVICE_URL=http://hw_service:8002
     depends_on:
       - orchestrator
