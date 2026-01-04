@@ -20,6 +20,7 @@ COPY src/production_phase/decision_logic_distributed.py /app/src/production_phas
 COPY src /app/src
 # Copy config if it exists in root
 COPY config.py /app/
+COPY models/ /app/models/
 
 # Expose port 8000
 EXPOSE 8000

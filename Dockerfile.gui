@@ -18,6 +18,10 @@ RUN pip install --no-cache-dir "streamlit>=1.37.0" plotly
 
 # 4. Copy the entire source code folder
 COPY src/ /app/src/
+# Copy config if it exists in root
+COPY config.py /app/
+COPY models/ /app/models/
+
 
 # 5. Expose the Streamlit port
 EXPOSE 8501

@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException
 from src.production_phase.predict_xgboost import XGBoostForecaster
 import logging
 import sys
+import pathlib
 from pathlib import Path
 
 logging.basicConfig(level=logging.INFO)

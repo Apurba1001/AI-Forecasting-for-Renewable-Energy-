@@ -88,6 +88,13 @@ class DistributedOrchestrator:
             import traceback
             logger.error(traceback.format_exc())
             raise
+    
+    def get_live_grid_status(self, carbon_mode=None):
+        """
+        Lightweight method to just read the Virtual Carbon Sensor.
+        Does NOT trigger any forecast models.
+        """
+        return self.sensor.get_current_carbon_intensity(force_mode=carbon_mode)
 
 
 

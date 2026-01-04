@@ -1,4 +1,4 @@
-version: '3.8'
+
 
 services:
   orchestrator:
@@ -7,12 +7,19 @@ services:
       - "8000:8000"
     environment:
       - PYTHONPATH=/app
+      - XGB_SERVICE_URL=http://xgb_service:8001
+      - HW_SERVICE_URL=http://hw_service:8002
     command: uvicorn src.api.main:app --host 0.0.0.0 --port 8000
     depends_on:
-      - hw_predict_service
-      - xgb_predict_service
+      - hw_service
+      - xgb_service
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: "5s"
+      timeout: "2s"
+      retries: 5
 
-  hw_predict_service:
+  hw_service:
     build: .
     ports:
       - "8002:8002"
@@ -42,6 +49,8 @@ services:
     ports:
       - "8501:8501"
     environment:
-      - ORCHESTRATOR_URL=http://orchestrator:8000
+      - API_URL=http://orchestrator:8000
+      - XGB_SERVICE_URL=http://xgb_service:8001
+      - HW_SERVICE_URL=http://hw_service:8002
     depends_on:
       - orchestrator
