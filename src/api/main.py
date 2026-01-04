@@ -75,7 +75,7 @@ def health_check():
             "hw_service": orchestrator.HW_URL
         }
     }
-    
+
 @app.get("/carbon-live")
 def carbon_live_readout(
     # Add this parameter so the GUI can force the mode

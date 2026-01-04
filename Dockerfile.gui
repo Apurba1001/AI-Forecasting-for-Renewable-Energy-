@@ -17,6 +17,7 @@ RUN pip install --no-cache-dir "streamlit>=1.37.0" plotly
 COPY src/ /app/src/
 # Copy config if it exists in root
 COPY config.py /app/
+COPY models/ /app/models/
 
 
 EXPOSE 8501
