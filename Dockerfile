@@ -17,6 +17,7 @@ RUN pip install --no-cache-dir -r requirements_deployment.txt
 
 # 5. Copy the rest of your project
 COPY . .
+COPY models/ /app/models/
 
 # 6. Expose ports
 EXPOSE 8000
