@@ -112,7 +112,36 @@ with st.sidebar:
     st.divider()
     
     st.header("🎮 Grid Control")
-    country_map = {"Germany": "DE", "Austria": "AT", "France": "FR"}
+    country_map = {
+            "Austria": "AT",
+            "Belgium": "BE",
+            "Bulgaria": "BG",
+            "Croatia": "HR",
+            "Czech Republic": "CZ",
+            "Denmark": "DK",
+            "Estonia": "EE",
+            "Finland": "FI",
+            "France": "FR",
+            "Germany": "DE",
+            "Greece": "GR",
+            "Hungary": "HU",
+            "Ireland": "IE",
+            "Italy": "IT",
+            "Latvia": "LV",
+            "Lithuania": "LT",
+            "Luxembourg": "LU",
+            "Netherlands": "NL",
+            "Norway": "NO",
+            "Poland": "PL",
+            "Portugal": "PT",
+            "Romania": "RO",
+            "Slovakia": "SK",
+            "Slovenia": "SI",
+            "Spain": "ES",
+            "Sweden": "SE",
+            "Switzerland": "CH",
+            "United Kingdom": "UK",
+        }
     country = st.selectbox("Country", list(country_map.keys()))
     
     st.markdown("### 🌍 Simulation Mode")

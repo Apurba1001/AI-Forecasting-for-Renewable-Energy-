@@ -83,33 +83,75 @@ class XGBoostForecaster(BaseForecaster):
         )
         tracker.start()
         
-        # 1. Load Data (Using the inherited method from BaseForecaster)
+# 1. Load Data & STRIP TIMEZONES IMMEDIATELY
         full_df = self._get_data() 
-        full_df["datetime_utc"] = pd.to_datetime(full_df["datetime_utc"], utc=True)
-        full_df = full_df.drop_duplicates(subset=["datetime_utc", "Country"], keep="last")
         
+        # Convert to datetime (UTC first to handle format)
+        full_df["datetime_utc"] = pd.to_datetime(full_df["datetime_utc"], utc=True)
+        
+        # --- 🔴 NUCLEAR FIX: REMOVE TIMEZONE INFO 🔴 ---
+        # This turns "2024-01-03 00:00:00+00:00" into just "2024-01-03 00:00:00"
+        full_df["datetime_utc"] = full_df["datetime_utc"].dt.tz_localize(None)
+        # -----------------------------------------------
+
+        # Now filter and set index (The index will now be Naive)
+        full_df = full_df.drop_duplicates(subset=["datetime_utc", "Country"], keep="last")
         country_history = full_df[full_df["Country"] == country_code].copy()
+        
         if country_history.empty:
-            return {
-                "forecast data": pd.DataFrame(),  # Empty DataFrame
-                "emissions kg": 0.0               # Zero emissions
-            }
+            return {"forecast_data": pd.DataFrame(), "emissions_kg": 0.0}
 
         country_history = country_history.set_index("datetime_utc").sort_index()
         
-        # 2. Setup Dates (Unified forecast_date logic)
+        # 2. Setup Dates (Force Naive Inputs)
         if forecast_date is None:
-            real_start = pd.Timestamp.now(tz="UTC").normalize()
+            # pd.Timestamp.now() is local, normalize() makes it midnight
+            real_start = pd.Timestamp.now().normalize() 
         else:
-            real_start = pd.Timestamp(forecast_date, tz="UTC").normalize()
+            # Force user input to be naive
+            ts = pd.Timestamp(forecast_date)
+            if ts.tz is not None:
+                ts = ts.tz_localize(None)
+            real_start = ts.normalize()
+
         real_steps = pd.date_range(start=real_start, periods=24, freq="h")
-        lookup_start = real_start - pd.DateOffset(years=1)
+
+        # --- TIME TRAVEL LOOKUP (Naive vs Naive) ---
+        ideal_feature_date = real_start - pd.Timedelta(days=1)
+        lookup_start = ideal_feature_date # It is already naive
+        
+        # Debugging Print (Optional - to confirm fix)
+        # print(f"DEBUG: Index TZ: {country_history.index.tz} | Lookup TZ: {lookup_start.tz}")
+
+        max_years_back = 5
+        years_back = 0
+        
+        while lookup_start not in country_history.index and years_back < max_years_back:
+            lookup_start -= pd.DateOffset(years=1)
+            # No need to normalize or localize, it stays naive
+            years_back += 1
+            
+        if lookup_start not in country_history.index:
+            print(f"⚠️ Warning: No historical match found for {ideal_feature_date}. Using last available data.")
+            lookup_start = country_history.index.max() # Use max (naive)
+            
+        print(f"🔮 Prediction Date: {real_start} | 🔙 Using Data From: {lookup_start}")
+        
         lookup_steps = pd.date_range(start=lookup_start, periods=24, freq="h")
 
         forecasts = {}
 
         for target in TARGET_COLS:
             clean_target = target.replace(' ', '_')
+
+            # --- 🛑 FIX: SKIPPING IMPOSSIBLE TECHNOLOGIES ---
+            # If the history for this country is 100% NaN (e.g., Austria Wind Offshore),
+            # assume the technology does not exist and return 0.
+            if country_history[target].isna().all():
+                forecasts[clean_target] = [0.0] * len(real_steps)
+                continue
+            # ------------------------------------------------
+
             model_path = MODEL_DIR_XGB / f"xgb_high_cost_{clean_target}.pkl"
             
             if not model_path.exists(): continue
@@ -124,6 +166,25 @@ class XGBoostForecaster(BaseForecaster):
                 X_step = self._get_prediction_row(
                     temp_history, target, real_dt, lookup_dt, country_code, feature_names
                 )
+                # --- 🔍 DEBUG START: Catch the Ghost ---
+                if target == "Solar" and real_dt.hour == 12: # Only check noon (peak solar)
+                    print(f"\n🔎 DEBUG NOON CHECK for {real_dt}")
+                    print(f"   Lookup Date: {lookup_dt}")
+                    # 1. Check what value exists in history for that day
+                    try:
+                        actual_hist = temp_history.loc[lookup_dt, target]
+                        print(f"   📉 Raw Historical Value in DF: {actual_hist}")
+                    except:
+                        print(f"   ❌ Could not read history for {lookup_dt}")
+
+                    # 2. Check the input features going into the model
+                    print(f"   🤖 Model Inputs (First 5 cols): {X_step.iloc[0, :5].to_dict()}")
+                    
+                    # 3. Check what the model predicts
+                    raw_pred = model.predict(X_step)[0]
+                    print(f"   🔮 Raw Model Prediction: {raw_pred}")
+                # --- 🔍 DEBUG END ---
+
                 pred = model.predict(X_step)[0]
                 pred = max(0, float(pred))
                 temp_history.loc[lookup_dt, target] = pred
@@ -139,8 +200,10 @@ class XGBoostForecaster(BaseForecaster):
             result_df = pd.DataFrame(forecasts, index=real_steps)
             result_df["Total_Generation"] = result_df.sum(axis=1)
             result_df.index.name = "datetime_utc"
-            # Store emissions
-            #res_df.attrs['carbon_emissions_kg'] = emissions_kg
+
+            # save as csv for debugging and testing
+            # output_file = OUTPUT_DIR / f"xgb_forecast_{country_code}.csv"
+            # result_df.to_csv(output_file)
             
             return {
                 "forecast_data" : result_df,
@@ -166,7 +229,7 @@ if __name__ == "__main__":
     
     # 2. Call the public 'predict' method
     # Notice we don't need to know about lags or model paths here
-    forecast_results = forecaster.predict(TARGET_COUNTRY)
+    #forecast_results = forecaster.predict(TARGET_COUNTRY)
     
     # 2. Call the standardized predict method
     results = forecaster.predict(TARGET_COUNTRY)

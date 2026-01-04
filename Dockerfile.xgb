@@ -1,10 +1,10 @@
 # Dockerfile.xgb
-FROM python:3.9-slim
+FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install dependencies for XGBoost
-RUN pip install fastapi uvicorn pandas xgboost joblib scikit-learn
+COPY requirements_deployment.txt .
+RUN pip install --no-cache-dir -r requirements_deployment.txt
 
 # Copy source code and models
 COPY src/ /app/src/
