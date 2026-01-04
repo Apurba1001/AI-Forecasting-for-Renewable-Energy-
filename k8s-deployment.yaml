@@ -5,6 +5,8 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: xgb-deployment
+  labels:
+    app: xgb-model
 spec:
   replicas: 1
   selector:
@@ -18,29 +20,37 @@ spec:
       containers:
       - name: xgb-container
         image: energy-xgb:latest
-        imagePullPolicy: Never  # Use local image
+        imagePullPolicy: Never
         ports:
         - containerPort: 8001
-        # Liveness Probe: Checks if app is alive every 5 seconds
         livenessProbe:
           httpGet:
-            path: /docs # (Make sure your FastAPI has a root / or /health endpoint)
+            path: /health
             port: 8001
-          initialDelaySeconds: 10
+          initialDelaySeconds: 5
           periodSeconds: 5
-        # Readiness Probe (Waits for startup)
+          timeoutSeconds: 5
+          failureThreshold: 3
         readinessProbe:
           httpGet:
-            path: /docs
+            path: /health
             port: 8001
-          initialDelaySeconds: 5   # Wait 5s before checking
-          periodSeconds: 2         # Check every 2s
-          failureThreshold: 3      # Give up after 3 tries
+          initialDelaySeconds: 10
+          periodSeconds: 2
+          timeoutSeconds: 3
+          failureThreshold: 3
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: xgb-service  # K8s DNS name (Hyphens, not underscores)
+  name: xgb-service
 spec:
   selector:
     app: xgb-model
@@ -48,6 +58,7 @@ spec:
     - protocol: TCP
       port: 8001
       targetPort: 8001
+  type: ClusterIP
 
 ---
 # ===========================
@@ -57,6 +68,8 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: hw-deployment
+  labels:
+    app: hw-model
 spec:
   replicas: 1
   selector:
@@ -73,6 +86,30 @@ spec:
         imagePullPolicy: Never
         ports:
         - containerPort: 8002
+        # ✅ ADDED: Health checks
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8002
+          initialDelaySeconds: 15
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8002
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
 ---
 apiVersion: v1
 kind: Service
@@ -94,6 +131,8 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: api-deployment
+  labels:
+    app: api-gateway
 spec:
   replicas: 1
   selector:
@@ -111,11 +150,33 @@ spec:
         ports:
         - containerPort: 8000
         env:
-          # INJECTING THE K8S DNS NAMES HERE
           - name: XGB_SERVICE_URL
-            value: "http://xgb-service:8001/predict/"
+            value: "http://xgb-service:8001"
           - name: HW_SERVICE_URL
-            value: "http://hw-service:8002/predict/"
+            value: "http://hw-service:8002"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 20
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 15
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
 ---
 apiVersion: v1
 kind: Service
@@ -124,8 +185,77 @@ metadata:
 spec:
   selector:
     app: api-gateway
-  type: LoadBalancer  # Exposes it to localhost
+  type: LoadBalancer
   ports:
     - protocol: TCP
       port: 8000
       targetPort: 8000
+
+---
+# ===========================
+# 4. GUI Deployment
+# ===========================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gui-deployment
+  labels:
+    app: energy-gui
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: energy-gui
+  template:
+    metadata:
+      labels:
+        app: energy-gui
+    spec:
+      containers:
+      - name: gui
+        image: energy-gui:latest
+        imagePullPolicy: Never
+        ports:
+        - containerPort: 8501
+        env:
+        - name: API_URL
+          value: "http://api-service:8000"
+        livenessProbe:
+          httpGet:
+            path: /_stcore/health
+            port: 8501
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /_stcore/health
+            port: 8501
+          initialDelaySeconds: 20
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+
+---
+# GUI Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: gui-service
+spec:
+  type: NodePort
+  selector:
+    app: energy-gui
+  ports:
+  - protocol: TCP
+    port: 8501
+    targetPort: 8501
+    nodePort: 30001

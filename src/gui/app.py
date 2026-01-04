@@ -1,8 +1,9 @@
 """
 Renewable Energy Forecast System - Production GUI
 Integrates with existing trained models and prediction modules
+MINIMAL CHANGES VERSION - Only fixes API integration
 """
-
+import requests
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -31,7 +32,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS - Modern, Professional Design
+# Custom CSS - Modern, Professional Design (UNCHANGED)
 st.markdown("""
     <style>
     /* Import Google Fonts */
@@ -524,22 +525,6 @@ def load_energy_types():
     """Load available energy types - Only Solar, Wind Onshore, Wind Offshore"""
     return ["Wind Onshore", "Wind Offshore", "Solar"]
 
-# Import your existing prediction modules
-try:
-    # Add project root to path
-    project_root = BASE_DIR.parent  # Goes up from src/gui to project root
-    if str(project_root) not in sys.path:
-        sys.path.insert(0, str(project_root))
-    
-    # Now import from src.production_phase
-    from src.production_phase.predict_lightweight import HoltWintersForecaster
-    from src.production_phase.predict_xgboost import XGBoostForecaster
-    
-    PREDICTIONS_AVAILABLE = True
-except ImportError as e:
-    st.warning(f"Prediction modules not found: {e}")
-    PREDICTIONS_AVAILABLE = False
-
 @st.cache_data
 def load_metrics():
     """Load model performance metrics"""
@@ -583,160 +568,190 @@ def load_carbon_data(model_type):
         st.error(f"Error loading carbon data: {e}")
         return 0.02
 
-def generate_forecast(country, energy_source, model_type, forecast_date, forecast_time, interval_hours):
+API_URL = os.getenv("API_URL", "http://localhost:8000")
+
+def generate_forecast(country, energy_source, model_type,
+                      forecast_date, forecast_time, interval_hours):
     """
-    Generate forecast using YOUR existing prediction modules
-    
-    Args:
-        country: Country code (e.g., "DE", "FR")
-        energy_source: "Solar", "Wind Onshore", or "Wind Offshore"
-        model_type: "Low Cost" or "High Cost"
-        forecast_date: Date for forecast
-        forecast_time: Start time for forecast
-        interval_hours: Forecast interval (1h, 3h, 6h, 12h, 24h)
+    ✅ FIXED: Generates forecast by calling FastAPI backend
+    Now properly handles standardized response format and carbon emissions
     """
+    import requests
+    import pandas as pd
+    from datetime import datetime, timedelta
+
+    country_code_map = {
+        "Austria": "AT", "Belgium": "BE", "Bulgaria": "BG", "Croatia": "HR",
+        "Czech Republic": "CZ", "Denmark": "DK", "Estonia": "EE",
+        "Finland": "FI", "France": "FR", "Germany": "DE", "Greece": "GR",
+        "Hungary": "HU", "Ireland": "IE", "Italy": "IT", "Latvia": "LV",
+        "Lithuania": "LT", "Luxembourg": "LU", "Netherlands": "NL",
+        "Norway": "NO", "Poland": "PL", "Portugal": "PT", "Romania": "RO",
+        "Slovakia": "SK", "Slovenia": "SI", "Spain": "ES", "Sweden": "SE",
+        "Switzerland": "CH", "United Kingdom": "UK",
+    }
+
+    country_code = country_code_map.get(country, "DE")
+
+        # Map GUI selection to API carbon mode
+    carbon_mode_map = {
+        "Low Cost": "HIGH",      # Low Cost GUI = Holt-Winters = HIGH carbon mode
+        "High Cost": "LOW"       # High Cost GUI = XGBoost = LOW carbon mode
+    }
+
+    params = {
+        "carbon_mode": carbon_mode_map[model_type]
+}
+
+    # ✅ FIXED: Better error handling
     try:
-        forecast_df = None 
-        if not PREDICTIONS_AVAILABLE:
-            st.error("Prediction modules not available. Please check your imports.")
-            return None
-        
-        # Map country names to country codes
-        country_code_map = {
-            "Austria": "AT",
-            "Belgium": "BE",
-            "Bulgaria": "BG",
-            "Croatia": "HR",
-            "Czech Republic": "CZ",
-            "Denmark": "DK",
-            "Estonia": "EE",
-            "Finland": "FI",
-            "France": "FR",
-            "Germany": "DE",
-            "Greece": "GR",
-            "Hungary": "HU",
-            "Ireland": "IE",
-            "Italy": "IT",
-            "Latvia": "LV",
-            "Lithuania": "LT",
-            "Luxembourg": "LU",
-            "Netherlands": "NL",
-            "Norway": "NO",
-            "Poland": "PL",
-            "Portugal": "PT",
-            "Romania": "RO",
-            "Slovakia": "SK",
-            "Slovenia": "SI",
-            "Spain": "ES",
-            "Sweden": "SE",
-            "Switzerland": "CH",
-            "United Kingdom": "UK",
-        }
-        country_code = country_code_map.get(country, "DE")
-        
-        
-# Note: Your predict functions need to accept a date parameter
-         
-        try:
-            if model_type == "Low Cost":
-                forecaster = HoltWintersForecaster()
-                forecast_df = forecaster.predict(country_code, forecast_date=forecast_date)
-            else:
-                forecaster = XGBoostForecaster()
-                forecast_df = forecaster.predict(country_code, forecast_date=forecast_date)
-        except Exception as e:
-            st.error(f"Error running forecaster: {e}")
-            import traceback
-            st.code(traceback.format_exc())
-            return None
+        response = requests.get(
+            f"{API_URL}/forecast/optimized/{country_code}",
+            params=params,
+            timeout=30
+        )
+        response.raise_for_status()
+        payload = response.json()
+    except requests.exceptions.RequestException as e:
+        st.error(f"❌ API Error: {e}")
+        raise
 
-        if forecast_df is None or forecast_df.empty:
-            st.error(f"No forecast generated for {country_code}")
-            return None
-
+    # ✅ FIXED: Extract metadata and forecast data from standardized response
+    metadata = payload.get("metadata", {})
+    forecast_data = payload.get("forecast", [])
     
-        # Extract the specific energy source column
-        energy_col_map = {
-            "Wind Onshore": "Wind_Onshore",
-            "Wind Offshore": "Wind_Offshore", 
-            "Solar": "Solar"
-        }
-        target_col = energy_col_map.get(energy_source)
+        # ✅ NEW: Check what model was actually used
+    selected_model = metadata.get("selected_model", "Unknown")
+    
+     #✅ NEW: Detect fallback scenarios
+    if "Fallback" in selected_model and model_type == "High Cost":
+        st.warning(f"""
+        ⚠️ **High Cost Model (XGBoost) is currently unavailable**
         
-        if target_col not in forecast_df.columns:
-            st.error(f"Energy source '{energy_source}' not found in forecast")
-            return None
+        The system has automatically switched to the **Low Cost Model (Holt-Winters)** 
+        to provide you with forecast results.
         
-        # Get the predicted values for the selected energy source
-        predicted_values = forecast_df[target_col].values
+        **What this means:**
+        - ✅ You still get forecast data
+        - ⚡ Faster response time
+        - 🌱 Lower carbon footprint
+        - ⚠️ Slightly lower accuracy
         
-        # Combine date and time for start datetime
-        start_datetime = datetime.combine(forecast_date, forecast_time)
+        **Actual model used:** {selected_model}
+        """)
+    elif "Fallback" in selected_model and model_type == "Low Cost":
+        st.warning(f"""
+        ⚠️ **Low Cost Model (Holt-Winters) is currently unavailable**
         
-        # Resample based on interval if needed
-        if interval_hours == 1:
-            # Use all 24 hourly values
-            times = [start_datetime + timedelta(hours=i) for i in range(len(predicted_values))]
-            predicted = predicted_values.tolist()
-        elif interval_hours == 3:
-            # Take every 3rd hour
-            indices = range(0, len(predicted_values), 3)
-            times = [start_datetime + timedelta(hours=i) for i in indices]
-            predicted = [predicted_values[i] for i in indices]
-        elif interval_hours == 6:
-            # Take every 6th hour
-            indices = range(0, len(predicted_values), 6)
-            times = [start_datetime + timedelta(hours=i) for i in indices]
-            predicted = [predicted_values[i] for i in indices]
-        elif interval_hours == 12:
-            # Take every 12th hour
-            indices = range(0, len(predicted_values), 12)
-            times = [start_datetime + timedelta(hours=i) for i in indices]
-            predicted = [predicted_values[i] for i in indices]
-        else:  # 24h
-            # Just the daily average or total
-            times = [start_datetime]
-            predicted = [np.mean(predicted_values)]
+        The system has automatically switched to the **High Cost Model (XGBoost)** 
+        to provide you with forecast results.
         
-        # Calculate confidence bounds (±15% for low cost, ±10% for high cost)
-        confidence_margin = 0.15 if model_type == "Low Cost" else 0.10
-        upper_bound = [p * (1 + confidence_margin) for p in predicted]
-        lower_bound = [p * (1 - confidence_margin) for p in predicted]
+        **What this means:**
+        - ✅ You still get forecast data
+        - 📊 Higher accuracy
+        - ⚠️ Slower response time
+        - 🌍 Higher carbon footprint
         
-        # Determine confidence level based on model and values
-        confidence = []
-        for p in predicted:
-            if model_type == "High Cost":
-                confidence.append("High")
-            elif p > 100:
-                confidence.append("Medium")
-            else:
-                confidence.append("Low")
-            # Extract carbon emissions from DataFrame attributes
-        # Extract carbon emissions from DataFrame attributes
-        carbon_emissions = forecast_df.attrs.get('carbon_emissions_kg', 0.0)
-        
-        return {
-            'times': times,
-            'predicted': predicted,
-            'upper_bound': upper_bound,
-            'lower_bound': lower_bound,
-            'confidence': confidence,
-            'country': country,
-            'country_code': country_code,
-            'energy_source': energy_source,
-            'interval': f"{interval_hours}h",
-            'model_type': model_type,
-            'full_forecast_df': forecast_df,  # Store full forecast for context
-            'carbon_emissions_kg': carbon_emissions
-            }
+        **Actual model used:** {selected_model}
+        """)
+    elif "Emergency" in selected_model:
+        # Both models are down - show emergency message
+        if model_type == "High Cost":
+            st.error(f"""
+            🔴 **High Cost Model (XGBoost) is Offline**
             
-    except Exception as e:
-        st.error(f"Error generating forecast: {e}")
-        import traceback
-        st.code(traceback.format_exc())
-        return None
+            The XGBoost service is currently unavailable and the automatic fallback 
+            to Holt-Winters also failed.
+            
+            **Showing emergency static forecast data.**
+            
+            💡 **Suggestion:** Try the **Low Cost** model instead, or contact support 
+            if this issue persists.
+            
+            **Status:** {metadata.get('error', 'All services unavailable')}
+            """)
+        else:
+            st.error(f"""
+            🔴 **Low Cost Model (Holt-Winters) is Offline**
+            
+            The Holt-Winters service is currently unavailable and the automatic fallback 
+            to XGBoost also failed.
+            
+            **Showing emergency static forecast data.**
+            
+            💡 **Suggestion:** Try the **High Cost** model instead, or contact support 
+            if this issue persists.
+            
+            **Status:** {metadata.get('error', 'All services unavailable')}
+            """)
     
+    if not forecast_data:
+        raise ValueError("No forecast data received from API")
+
+    # ✅ FIXED: Build DataFrame from forecast
+    df = pd.DataFrame(forecast_data)
+    df["datetime_utc"] = pd.to_datetime(df["datetime_utc"])
+    df.set_index("datetime_utc", inplace=True)
+
+    # ✅ FIXED: Get carbon emissions from metadata
+    carbon_emissions_kg = metadata.get("execution_carbon_kg", 0.0)
+    
+    # Log for debugging
+    print(f"📊 Received forecast: {len(df)} records")
+    print(f"🌱 Carbon emissions: {carbon_emissions_kg} kg")
+    print(f"🤖 Model used: {selected_model}")
+    print(f"📋 Columns: {df.columns.tolist()}")
+
+    # --- Select values safely ---
+    energy_col_map = {
+        "Wind Onshore": "Wind_Onshore",
+        "Wind Offshore": "Wind_Offshore",
+        "Solar": "Solar",
+    }
+    
+    col = energy_col_map.get(energy_source)
+
+    if col and col in df.columns:
+        values = df[col].astype(float).values
+    elif "predicted_generation_mw" in df.columns:
+        values = df["predicted_generation_mw"].astype(float).values
+    elif "Total_Generation" in df.columns:
+        values = df["Total_Generation"].astype(float).values
+    else:
+        raise ValueError(f"No usable forecast column found. Available: {df.columns.tolist()}")
+
+    # --- DEFINE predicted EXACTLY ONCE ---
+    start_dt = datetime.combine(forecast_date, forecast_time)
+
+    if interval_hours == 24:
+        times = [start_dt]
+        predicted = [float(values.mean())]
+    else:
+        step = interval_hours
+        indices = range(0, len(values), step)
+        times = [start_dt + timedelta(hours=i) for i in indices]
+        predicted = [float(values[i]) for i in indices]
+
+    # --- Confidence bounds (SAFE) ---
+    margin = 0.15 if model_type == "Low Cost" else 0.10
+    upper_bound = [p * (1 + margin) for p in predicted]
+    lower_bound = [p * (1 - margin) for p in predicted]
+
+    # ✅ FIXED: Return carbon emissions and metadata
+    return {
+        "times": times,
+        "predicted": predicted,
+        "upper_bound": upper_bound,
+        "lower_bound": lower_bound,
+        "confidence": ["High"] * len(times),
+        "full_forecast_df": df,
+        "model_type": model_type,
+        "carbon_emissions_kg": carbon_emissions_kg,  # ✅ NEW
+        "selected_model": selected_model,  # ✅ NEW
+        "metadata": metadata  # ✅ NEW
+    }
+
+
 # Title and subtitle
 st.title("⚡ Renewable Energy Forecast System")
 st.markdown('<p class="subtitle">Multi-source forecasting for 28 European countries</p>', 
@@ -910,35 +925,34 @@ if 'forecast_data' in st.session_state:
     col1, col2, col3, col4, col5 = st.columns(5)
     
     with col1:
-    # Get the value for the user's selected hour
-        if 'full_forecast_df' in forecast_data:
-            full_df = forecast_data['full_forecast_df']
-            energy_col_map = {
-                "Wind Onshore": "Wind_Onshore",
-                "Wind Offshore": "Wind_Offshore",
-                "Solar": "Solar"
-            }
-            target_col = energy_col_map.get(st.session_state.get('current_energy'))
-            selected_hour = st.session_state.get('forecast_time').hour
-            
-            if target_col and target_col in full_df.columns:
-                current_output = full_df[target_col].values[selected_hour]
-            else:
-                current_output = forecast_data['predicted'][0]
+        full_df = forecast_data.get("full_forecast_df")
+        energy_col_map = {
+            "Wind Onshore": "Wind_Onshore",
+            "Wind Offshore": "Wind_Offshore",
+            "Solar": "Solar",
+        }
+
+        target_col = energy_col_map.get(st.session_state.get("current_energy"))
+        selected_hour = st.session_state.get("forecast_time").hour
+
+        # ---- SAFE series selection (NO KeyErrors) ----
+        if full_df is not None and target_col in full_df.columns:
+            series = full_df[target_col].astype(float).values
+        elif full_df is not None and "predicted_generation_mw" in full_df.columns:
+            series = full_df["predicted_generation_mw"].astype(float).values
         else:
-            current_output = forecast_data['predicted'][0]
-        
-        # Calculate delta (compare to next hour if available)
-        if 'full_forecast_df' in forecast_data and selected_hour < 23:
-            next_hour_value = full_df[target_col].values[selected_hour + 1]
-            delta_value = current_output - next_hour_value
-            delta_str = f"{delta_value:.0f} MW"
-        elif len(forecast_data['predicted']) > 1:
-            delta_value = current_output - forecast_data['predicted'][1]
+            series = forecast_data["predicted"]
+
+        # ---- Current value ----
+        current_output = series[selected_hour]
+
+        # ---- Delta calculation (safe) ----
+        if selected_hour + 1 < len(series):
+            delta_value = current_output - series[selected_hour + 1]
             delta_str = f"{delta_value:.0f} MW"
         else:
             delta_str = None
-        
+
         st.metric(
             label=f"Output at {st.session_state.get('forecast_time').strftime('%H:%M')}",
             value=f"{current_output:.0f} MW",
@@ -981,9 +995,9 @@ if 'forecast_data' in st.session_state:
         )
         
     with col5:
-    # NEW: Carbon Emissions Display
-        carbon_emissions = forecast_data.get('carbon_emissions_kg', 0.0) if isinstance(forecast_data, dict) else 0.0
-    
+        # ✅ FIXED: Carbon Emissions Display from API
+        carbon_emissions = forecast_data.get('carbon_emissions_kg', 0.0)
+        
         # Color based on model type
         if st.session_state.get('model_type') == 'Low Cost':
             delta_color = "normal"  # Green
@@ -992,26 +1006,24 @@ if 'forecast_data' in st.session_state:
             delta_color = "inverse"  # Red
             comparison = "High Impact"
         
-        
-                # Smart display based on magnitude
-        if carbon_emissions < 0.0001:
-            value_str=f"{carbon_emissions:.2e} kg CO₂"  # Scientific notation
-        elif carbon_emissions < 0.001:
-            value_str=f"{carbon_emissions*1000000:.2f} mg CO₂"  # Milligrams
+        # Smart display based on magnitude
+        if carbon_emissions < 0.001:
+            value_str = f"{carbon_emissions*1000000:.2f} mg CO₂"
+        elif carbon_emissions < 1:
+            value_str = f"{carbon_emissions*1000:.2f} g CO₂"
         else:
-            value_str=f"{carbon_emissions*1000:.2f} g CO₂"  # Grams
+            value_str = f"{carbon_emissions:.4f} kg CO₂"
         
         st.metric(
             label="Carbon Footprint",
-            # Smart display based on magnitude
-            value=f"{carbon_emissions*1000000:.4f} mg CO₂",  # Always in milligrams with 4 decimals
+            value=value_str,
             delta=comparison,
             delta_color=delta_color
         )
     
     st.divider()
     
-        # Forecast chart
+    # Forecast chart
     st.subheader("📊 Forecast Visualization")
 
     # Add forecast details
