@@ -78,7 +78,6 @@ class XGBoostForecaster(BaseForecaster):
 
     # --- MAIN LOOP BECOMES THE 'predict' METHOD ---
     def predict(self, country_code: str, forecast_date=None) -> dict:
-
         # Start tracking
         tracker = EmissionsTracker(
             project_name="renewable_energy_forecast",
@@ -236,8 +235,9 @@ class XGBoostForecaster(BaseForecaster):
 
 
 if __name__ == "__main__":
-    from config import TARGET_COUNTRY  # Target country from config for test purposes
+    from config import TARGET_COUNTRY
 
+    # Target country from config for test purposes
     # 1. Initialize the Forecaster object
     # This sets up the paths and internal states
     forecaster = XGBoostForecaster()

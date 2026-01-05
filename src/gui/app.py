@@ -974,7 +974,6 @@ st.markdown(
 
 # Sidebar configuration
 with st.sidebar:
-
     st.header("🔧 Forecast Configuration")
 
     # Load available options
