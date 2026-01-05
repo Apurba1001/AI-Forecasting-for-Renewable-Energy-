@@ -1,6 +1,5 @@
 @"
 # Exclude large files from Docker build
-models/
 venv/
 .venv/
 __pycache__/
