@@ -28,8 +28,7 @@ from src.production_phase import decision_logic_distributed
 
 logger.error("🔥 USING FILE: %s", decision_logic_distributed.__file__)
 
-from src.production_phase.decision_logic_distributed import \
-    DistributedOrchestrator
+from src.production_phase.decision_logic_distributed import DistributedOrchestrator
 
 # ------------------------------------------------------------------
 # FastAPI setup

@@ -12,8 +12,14 @@ from entsoe.exceptions import NoMatchingDataError
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.append(str(PROJECT_ROOT))
 
-from config import (DATA_FILE_RAW, END_DATE, PROJECT_ROOT, START_DATE,
-                    TARGET_COLS, TARGET_COUNTRIES)
+from config import (
+    DATA_FILE_RAW,
+    END_DATE,
+    PROJECT_ROOT,
+    START_DATE,
+    TARGET_COLS,
+    TARGET_COUNTRIES,
+)
 
 
 class EnergyDataLoader:
