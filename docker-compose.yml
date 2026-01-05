@@ -1,7 +1,6 @@
-
-
 services:
   orchestrator:
+    image: energy-orchestrator
     build: .
     ports:
       - "8000:8000"
@@ -20,6 +19,7 @@ services:
       retries: 5
 
   hw_service:
+    image: energy-hw
     build: .
     ports:
       - "8002:8002"
@@ -28,6 +28,7 @@ services:
     command: uvicorn src.api.lightweight_service:app --host 0.0.0.0 --port 8002
 
   xgb_service: 
+    image: energy-xgb
     build: 
       context: .
       dockerfile: Dockerfile.xgb
@@ -43,6 +44,7 @@ services:
     command: uvicorn src.api.xgboost_service:app --host 0.0.0.0 --port 8001 --reload
 
   gui:
+    image: energy-gui
     build:
       context: .
       dockerfile: Dockerfile.gui
