@@ -96,10 +96,9 @@ jobs:
           $content = Get-Content k8s/k8s-deployment.yaml -Raw
           $content = $content -replace ':latest', ':staging'
           $content = $content -replace 'imagePullPolicy:\s*Always', 'imagePullPolicy: Never'
-
           $content | Out-File k8s/k8s-deployment-staging.yaml -Encoding utf8
 
-          Write-Host "Deployment manifest updated"
+          Write-Host "Deployment manifest updated Check"
 
       - name: Deploy Services
         shell: powershell
