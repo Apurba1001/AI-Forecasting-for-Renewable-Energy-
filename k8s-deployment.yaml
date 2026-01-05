@@ -145,7 +145,7 @@ spec:
     spec:
       containers:
       - name: api-container
-        image: energy-api:production
+        image: energy-orchestrator:production
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 8000
