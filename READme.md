@@ -103,5 +103,3 @@ AI-Forecasting-for-Renewable-Energy-/
 │       └── main.py
 ├── requirements.txt
 ```
-
-TEST
