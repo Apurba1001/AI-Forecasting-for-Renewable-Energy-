@@ -50,11 +50,11 @@ jobs:
         shell: powershell
         run: |
           Write-Host "🏷️ Tagging images for staging..."
+          docker tag ai-forecasting-for-renewable-energy--orchestrator:latest ai-forecasting-for-renewable-energy--orchestrator:staging
+          docker tag ai-forecasting-for-renewable-energy--xgb_service:latest ai-forecasting-for-renewable-energy--xgb_service:staging
+          docker tag ai-forecasting-for-renewable-energy--hw_service:latest ai-forecasting-for-renewable-energy--hw_service:staging
+          docker tag ai-forecasting-for-renewable-energy--gui:latest ai-forecasting-for-renewable-energy--gui:staging
 
-          docker tag energy-orchestrator:latest energy-orchestrator:staging
-          docker tag energy-xgb:latest energy-xgb:staging
-          docker tag energy-hw:latest energy-hw:staging
-          docker tag energy-gui:latest energy-gui:staging
 
           Write-Host "✅ Images tagged"
 
