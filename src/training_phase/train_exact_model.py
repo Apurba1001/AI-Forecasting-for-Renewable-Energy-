@@ -1,11 +1,11 @@
-import pandas as pd
 from pathlib import Path
-from xgboost import XGBRegressor
-import joblib
-from sklearn.metrics import mean_absolute_error
-from feature_engineering import build_features_dataframe
-from codecarbon import EmissionsTracker
 
+import joblib
+import pandas as pd
+from codecarbon import EmissionsTracker
+from feature_engineering import build_features_dataframe
+from sklearn.metrics import mean_absolute_error
+from xgboost import XGBRegressor
 
 # ============================================================
 # CONFIG
@@ -38,13 +38,14 @@ XGB_PARAMS = dict(
     random_state=42,
 )
 
+
 def main():
     print("\n🚀 STARTING XGBOOST TRAINING PIPELINE")
     pipeline_tracker = EmissionsTracker(
         project_name="xgb_generation_pipeline",
         output_dir=str(CARBON_DIR),
         output_file="pipeline_emissions.csv",
-        log_level="error"
+        log_level="error",
     )
     pipeline_tracker.start()
     df_raw = pd.read_csv(DATA_FILE)
@@ -58,44 +59,48 @@ def main():
         target_tracker = EmissionsTracker(
             project_name=f"xgb_{target.replace(' ', '_')}",
             output_dir=str(CARBON_DIR),
-            output_file="emissions.csv",             
+            output_file="emissions.csv",
             allow_multiple_runs=True,
-            log_level="error"
+            log_level="error",
         )
         target_tracker.start()
         emissions = 0.0
-            
+
         X, y, timestamps = build_features_dataframe(df_raw, target_col=target)
 
-            # --- STEP 1: VALIDATION FOR METRICS ---
+        # --- STEP 1: VALIDATION FOR METRICS ---
         train_mask = timestamps <= TRAIN_END
         val_mask = (timestamps > TRAIN_END) & (timestamps <= VAL_END)
-            
+
         X_train_val, y_train_val = X.loc[train_mask], y.loc[train_mask]
         X_val, y_val = X.loc[val_mask], y.loc[val_mask]
 
         if not X_val.empty:
-                model_val = XGBRegressor(**XGB_PARAMS)
-                model_val.fit(X_train_val, y_train_val, eval_set=[(X_val, y_val)], verbose=False)
-                
-                # Calculate Metrics (Global average for this target)
-                preds = model_val.predict(X_val)
-                mae = mean_absolute_error(y_val, preds)
-                peak = y_val.max()
-                error_pct = (mae / peak * 100) if peak != 0 else 0
-                
-                all_metrics.append({
-                    "Country": "GLOBAL", # XGBoost is trained across countries
+            model_val = XGBRegressor(**XGB_PARAMS)
+            model_val.fit(
+                X_train_val, y_train_val, eval_set=[(X_val, y_val)], verbose=False
+            )
+
+            # Calculate Metrics (Global average for this target)
+            preds = model_val.predict(X_val)
+            mae = mean_absolute_error(y_val, preds)
+            peak = y_val.max()
+            error_pct = (mae / peak * 100) if peak != 0 else 0
+
+            all_metrics.append(
+                {
+                    "Country": "GLOBAL",  # XGBoost is trained across countries
                     "Energy_Type": target.replace(" ", "_"),
                     "MAE_MW": round(mae, 2),
                     "Test_Peak_MW": round(peak, 2),
                     "Error_Percentage": round(error_pct, 1),
                     "Carbon_kg_CO2": round(emissions, 4),
-                    "Status": "Success"
-                })
+                    "Status": "Success",
+                }
+            )
 
-            # --- STEP 2: FULL RETRAIN ON 100% DATA ---
-            # No masks = use all data points from 01.01 to 12.31
+        # --- STEP 2: FULL RETRAIN ON 100% DATA ---
+        # No masks = use all data points from 01.01 to 12.31
         print(f"🔄 Retraining final model on 100% of data (Samples: {len(X)})...")
         final_model = XGBRegressor(**XGB_PARAMS)
         final_model.fit(X, y, verbose=False)
@@ -104,7 +109,7 @@ def main():
         model_path = MODEL_DIR / f"xgb_high_cost_{target.replace(' ', '_')}.pkl"
         joblib.dump(final_model, model_path)
         print(f"✅ Saved Final Model: {model_path.name}")
-        
+
         # ✅ ALWAYS stop tracker here
         emissions = target_tracker.stop()
         print(f"🌱 Carbon emissions for {target}: {emissions:.4f} kg CO₂eq")

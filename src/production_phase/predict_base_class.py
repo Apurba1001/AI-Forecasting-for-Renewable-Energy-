@@ -1,13 +1,17 @@
 from abc import ABC, abstractmethod
-import pandas as pd
 from pathlib import Path
+
+import pandas as pd
+
 from config import DATA_FILE_RAW
+
 
 class BaseForecaster(ABC):
     """
     Abstract Base Class for all Forecasting models.
     Enforces a consistent interface for the Orchestrator to use.
     """
+
     def __init__(self):
         self.data_path = DATA_FILE_RAW
         self._raw_data = None

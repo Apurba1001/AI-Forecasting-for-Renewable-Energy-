@@ -1,20 +1,25 @@
 from src.production_phase.carbon_simulator import CarbonSimulator
-from src.production_phase.predict_xgboost import XGBoostForecaster
 from src.production_phase.predict_lightweight import HoltWintersForecaster
+from src.production_phase.predict_xgboost import XGBoostForecaster
+
 
 class LocalOrchestrator:
     def __init__(self):
         # CarbonSimulator as Virtual Sensor
-        self.sensor = CarbonSimulator()     
+        self.sensor = CarbonSimulator()
         # Instantiate both strategies locally
         self.performance_model = XGBoostForecaster()
         self.eco_model = HoltWintersForecaster()
 
     def get_optimized_forecast(self, country_code, carbon_mode=None):
         carbon_data = self.sensor.get_current_carbon_intensity(force_mode=carbon_mode)
-        intensity_status = carbon_data['status']
-        
-        metadata = {"carbon_context": carbon_data, "selected_model": "", "reasoning": ""}
+        intensity_status = carbon_data["status"]
+
+        metadata = {
+            "carbon_context": carbon_data,
+            "selected_model": "",
+            "reasoning": "",
+        }
 
         # Strategy Selection Logic
         if intensity_status == "HIGH":

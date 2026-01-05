@@ -1,11 +1,13 @@
 import random
 from datetime import datetime
 
+
 class CarbonSimulator:
     """
     Component responsible for monitoring grid carbon intensity.
     Acts as a 'Virtual Sensor' for the Orchestrator.
     """
+
     def __init__(self, low_threshold=200, high_threshold=400):
         self.low_range = (50, 180)
         self.high_range = (400, 650)
@@ -39,8 +41,9 @@ class CarbonSimulator:
             "carbon_intensity": round(carbon_val, 1),
             "status": status,
             "is_manual_override": is_manual,
-            "unit": "gCO2/kWh"
+            "unit": "gCO2/kWh",
         }
+
 
 # --- Example Usage in Orchestrator ---
 # sensor = CarbonSimulator()
