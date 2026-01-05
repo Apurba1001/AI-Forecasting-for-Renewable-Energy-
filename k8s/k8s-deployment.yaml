@@ -19,8 +19,8 @@ spec:
     spec:
       containers:
       - name: xgb-container
-        image: energy-xgb:latest
-        imagePullPolicy: Never
+        image: energy-xgb:production
+        imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 8001
         livenessProbe:
@@ -82,8 +82,8 @@ spec:
     spec:
       containers:
       - name: hw-container
-        image: energy-hw:latest
-        imagePullPolicy: Never
+        image: energy-hw:production
+        imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 8002
         # ✅ ADDED: Health checks
@@ -145,8 +145,8 @@ spec:
     spec:
       containers:
       - name: api-container
-        image: energy-api:latest
-        imagePullPolicy: Never
+        image: energy-orchestrator:production
+        imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 8000
         env:
@@ -213,8 +213,8 @@ spec:
     spec:
       containers:
       - name: gui
-        image: energy-gui:latest
-        imagePullPolicy: Never
+        image: energy-gui:production
+        imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 8501
         env:
@@ -258,4 +258,4 @@ spec:
   - protocol: TCP
     port: 8501
     targetPort: 8501
-    nodePort: 30001
+    nodePort: 30011

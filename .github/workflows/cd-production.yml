@@ -38,7 +38,6 @@ jobs:
           if ($context -ne "docker-desktop") {
             Write-Host "Warning: Not using docker-desktop context"
           }
-          fi
       
       - name: Build Production Images with docker-compose
         shell: powershell
