@@ -1,0 +1,252 @@
+name: Deploy to Production
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:  # Allow manual trigger
+
+env:
+  NAMESPACE: production
+
+jobs:
+  deploy-production:
+    name: Deploy to Production
+    runs-on: self-hosted
+    environment: 
+      name: production
+      url: http://localhost:30001
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Manual Approval Required
+        shell: bash
+        run: |
+          echo "🔐 Manual approval required for production deployment"
+          echo "This will be handled by GitHub Environment protection rules"
+      
+      - name: Verify Docker Desktop Kubernetes
+        shell: bash
+        run: |
+          kubectl version --client
+          kubectl cluster-info
+          
+          CONTEXT=$(kubectl config current-context)
+          echo "Current context: $CONTEXT"
+          
+          if [[ "$CONTEXT" != "docker-desktop" ]]; then
+            echo "⚠️ Warning: Not using docker-desktop context"
+          fi
+      
+      - name: Build Production Images with docker-compose
+        shell: bash
+        run: |
+          echo "🏗️ Building production images with commit SHA: ${{ github.sha }}"
+          
+          # Build using docker-compose
+          docker-compose build
+          
+          # Tag with commit SHA and latest
+          docker tag energy-orchestrator:latest energy-orchestrator:${{ github.sha }}
+          docker tag energy-xgb:latest energy-xgb:${{ github.sha }}
+          docker tag energy-hw:latest energy-hw:${{ github.sha }}
+          docker tag energy-gui:latest energy-gui:${{ github.sha }}
+          
+          docker tag energy-orchestrator:latest energy-orchestrator:production
+          docker tag energy-xgb:latest energy-xgb:production
+          docker tag energy-hw:latest energy-hw:production
+          docker tag energy-gui:latest energy-gui:production
+          
+          echo "✅ Images built and tagged"
+      
+      - name: Verify images
+        shell: bash
+        run: |
+          echo "📦 Verifying production images..."
+          docker images | grep energy
+          
+          # Images automatically available in Docker Desktop Kubernetes
+          echo "✅ Images available to Kubernetes"
+      
+      - name: Create/Update Namespace
+        shell: bash
+        run: |
+          kubectl create namespace ${{ env.NAMESPACE }} --dry-run=client -o yaml | kubectl apply -f -
+          kubectl label namespace ${{ env.NAMESPACE }} environment=production --overwrite
+      
+      - name: Create Production ConfigMap
+        shell: bash
+        run: |
+          kubectl create configmap app-config \
+            --from-literal=ENV=production \
+            --from-literal=LOG_LEVEL=WARNING \
+            --from-literal=PYTHONUNBUFFERED=1 \
+            --from-literal=API_URL=http://api-service:8000 \
+            --from-literal=XGB_SERVICE_URL=http://xgb-service:8001 \
+            --from-literal=HW_SERVICE_URL=http://hw-service:8002 \
+            --namespace=${{ env.NAMESPACE }} \
+            --dry-run=client -o yaml | kubectl apply -f -
+      
+      - name: Backup Current Deployment
+        shell: bash
+        run: |
+          echo "💾 Backing up current deployment..."
+          kubectl get deployment --namespace=${{ env.NAMESPACE }} -o yaml > backup-deployment-$(date +%Y%m%d-%H%M%S).yaml || true
+        continue-on-error: true
+      
+      - name: Update deployment manifests
+        shell: bash
+        run: |
+          # Update to use production tag and imagePullPolicy Never
+          sed -e 's/:latest/:production/g' \
+              -e 's/imagePullPolicy: Always/imagePullPolicy: Never/g' \
+              k8s/deployment.yaml > k8s/deployment-production.yaml
+          
+          echo "✅ Production manifest created"
+      
+      - name: Deploy to Production
+        shell: bash
+        run: |
+          echo "🚀 Deploying to production..."
+          
+          # Apply manifests
+          kubectl apply -f k8s/deployment-production.yaml --namespace=${{ env.NAMESPACE }}
+          kubectl apply -f k8s/service.yaml --namespace=${{ env.NAMESPACE }}
+          
+          # Annotate deployment with metadata
+          kubectl annotate deployment api-deployment \
+            kubernetes.io/change-cause="Deployed commit ${{ github.sha }} by GitHub Actions" \
+            --namespace=${{ env.NAMESPACE }} --overwrite
+      
+      - name: Wait for Rollout (with timeout)
+        shell: bash
+        run: |
+          echo "⏳ Waiting for production rollout..."
+          
+          # Set longer timeout for production
+          kubectl rollout status deployment/api-deployment \
+            --namespace=${{ env.NAMESPACE }} --timeout=10m
+          
+          kubectl rollout status deployment/xgb-deployment \
+            --namespace=${{ env.NAMESPACE }} --timeout=10m
+          
+          kubectl rollout status deployment/hw-deployment \
+            --namespace=${{ env.NAMESPACE }} --timeout=10m
+          
+          kubectl rollout status deployment/gui-deployment \
+            --namespace=${{ env.NAMESPACE }} --timeout=10m
+      
+      - name: Production Health Checks
+        shell: bash
+        run: |
+          echo "🏥 Running production health checks..."
+          sleep 30  # Extra wait time for production
+          
+          # Comprehensive health check with retries
+          for i in {1..5}; do
+            echo "Health check attempt $i/5..."
+            
+            if kubectl run prod-health-check-$i \
+              --image=curlimages/curl \
+              --rm -i --restart=Never \
+              --namespace=${{ env.NAMESPACE }} \
+              -- curl -f http://api-service:8000/health; then
+              echo "✅ Health check passed on attempt $i"
+              break
+            fi
+            
+            if [ $i -eq 5 ]; then
+              echo "❌ Health check failed after 5 attempts"
+              exit 1
+            fi
+            
+            sleep 10
+          done
+      
+      - name: Functional Tests
+        shell: bash
+        run: |
+          echo "🧪 Running production functional tests..."
+          
+          # Test forecast endpoint
+          kubectl run prod-functional-test \
+            --image=curlimages/curl \
+            --rm -i --restart=Never \
+            --namespace=${{ env.NAMESPACE }} \
+            -- curl -f "http://api-service:8000/forecast/optimized/DE?carbon_mode=LOW" || {
+              echo "❌ Functional test failed"
+              exit 1
+            }
+          
+          echo "✅ All functional tests passed"
+      
+      - name: Verify Deployment Success
+        shell: bash
+        run: |
+          echo "✅ Production deployment successful!"
+          echo ""
+          echo "📊 Deployment Status:"
+          kubectl get deployments --namespace=${{ env.NAMESPACE }}
+          echo ""
+          echo "🎯 Pod Status:"
+          kubectl get pods --namespace=${{ env.NAMESPACE }}
+          echo ""
+          echo "🌐 Services:"
+          kubectl get services --namespace=${{ env.NAMESPACE }}
+          echo ""
+          echo "📍 Access URLs (Docker Desktop):"
+          echo "   GUI: http://localhost:30001"
+          echo "   API: http://localhost:30000"
+      
+      - name: Cleanup temp files
+        shell: bash
+        run: |
+          rm -f k8s/deployment-production.yaml
+      
+      - name: Auto-Rollback on Failure
+        if: failure()
+        shell: bash
+        run: |
+          echo "❌ Deployment failed! Initiating automatic rollback..."
+          
+          # Get logs before rollback
+          echo "📋 Recent logs:"
+          kubectl logs -l app=api-gateway --tail=100 --namespace=${{ env.NAMESPACE }}
+          
+          # Rollback all deployments
+          kubectl rollout undo deployment/api-deployment --namespace=${{ env.NAMESPACE }} || true
+          kubectl rollout undo deployment/xgb-deployment --namespace=${{ env.NAMESPACE }} || true
+          kubectl rollout undo deployment/hw-deployment --namespace=${{ env.NAMESPACE }} || true
+          kubectl rollout undo deployment/gui-deployment --namespace=${{ env.NAMESPACE }} || true
+          
+          echo "⏪ Rollback initiated"
+          
+          # Wait for rollback to complete
+          kubectl rollout status deployment/api-deployment --namespace=${{ env.NAMESPACE }} || true
+          
+          echo "✅ Rollback completed"
+      
+      - name: Create Deployment Tag
+        if: success()
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "prod-${{ github.sha }}" -m "Production deployment $(date -u +'%Y-%m-%d %H:%M:%S UTC')"
+          git push origin "prod-${{ github.sha }}" || true
+        continue-on-error: true
+      
+      - name: Post-Deployment Report
+        if: always()
+        shell: bash
+        run: |
+          echo "📊 Post-Deployment Report"
+          echo "========================"
+          echo "Commit: ${{ github.sha }}"
+          echo "Branch: ${{ github.ref_name }}"
+          echo "Author: ${{ github.actor }}"
+          echo "Time: $(date -u +'%Y-%m-%d %H:%M:%S UTC')"
+          echo ""
+          echo "Revision History:"
+          kubectl rollout history deployment/api-deployment --namespace=${{ env.NAMESPACE }} || true

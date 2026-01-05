@@ -13,11 +13,6 @@ services:
     depends_on:
       - hw_service
       - xgb_service
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
-      interval: "5s"
-      timeout: "2s"
-      retries: 5
 
   hw_service:
     build: .
@@ -27,7 +22,7 @@ services:
       - PYTHONPATH=/app
     command: uvicorn src.api.lightweight_service:app --host 0.0.0.0 --port 8002
 
-  xgb_predict_service: 
+  xgb_service: 
     build: 
       context: .
       dockerfile: Dockerfile.xgb
