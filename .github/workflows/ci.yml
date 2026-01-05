@@ -122,6 +122,7 @@ jobs:
             SERVICE_NAME=${{ matrix.service.name }}
       
       - name: Test image
+        shell: pwsh
         run: |
           docker images | Select-String "energy-hw-service"
 
