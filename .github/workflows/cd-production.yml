@@ -102,6 +102,263 @@ jobs:
         shell: powershell
         run: |
           # Update to use production tag and imagePullPolicy Never
+          $content = Get-Content k8s/k8s-deployment.yaml -Raw
+          $content = $content -replace ':latest', ':production'
+          $content = $content -replace 'imagePullPolicy:\s*Always', 'imagePullPolicy: Never'
+          $content | Out-File k8s/k8s-deployment-production.yaml -Encoding utf8
+
+          Write-Host " Production manifest created"
+
+      - name: Deploy to Production
+        shell: powershell
+        run: |
+          Write-Host "Deploying to production..."
+          
+          # Apply manifests
+          kubectl apply -f k8s/k8s-deployment-production.yaml --namespace=$env:NAMESPACE
+          
+          # Annotate deployment with metadata
+          kubectl annotate deployment api-deployment `
+            kubernetes.io/change-cause="Deployed commit ${{ github.sha }} by GitHub Actions" `
+            --namespace=$env:NAMESPACE --overwrite
+
+      
+      - name: Wait for Rollout (with timeout)
+        shell: powershell
+        run: |
+          Write-Host "Waiting for production rollout..."
+          
+          # Set longer timeout for production
+          kubectl rollout status deployment/api-deployment `
+            --namespace=$env:NAMESPACE --timeout=10m
+          
+          kubectl rollout status deployment/xgb-deployment `
+            --namespace=$env:NAMESPACE --timeout=10m
+          
+          kubectl rollout status deployment/hw-deployment `
+            --namespace=$env:NAMESPACE --timeout=10m
+          
+          kubectl rollout status deployment/gui-deployment `
+            --namespace=$env:NAMESPACE --timeout=10m
+
+      - name: Production Health Checks
+        shell: powershell
+        run: |
+          Write-Host "Running production health checks..."
+          Start-Sleep -Seconds 30  # Extra wait time for production
+          
+          # Comprehensive health check with retries
+          for ($i = 1; $i -le 5; $i++) {
+            Write-Host "Health check attempt $i/5..."
+            
+            kubectl run "prod-health-check-$i" `
+              --image=curlimages/curl `
+              --rm -i --restart=Never `
+              --namespace=$env:NAMESPACE `
+              -- curl -f http://api-service:8000/health
+            
+            if ($LASTEXITCODE -eq 0) {
+              Write-Host "Health check passed on attempt $i"
+              break
+            }
+            
+            if ($i -eq 5) {
+              Write-Host "Health check failed after 5 attempts"
+              exit 1
+            }
+            
+            Start-Sleep -Seconds 10
+          }
+
+      - name: Functional Tests
+        shell: powershell
+        run: |
+          Write-Host "Running production functional tests..."
+          
+          kubectl run prod-functional-test `
+            --image=curlimages/curl `
+            --rm -i --restart=Never `
+            --namespace=$env:NAMESPACE `
+            -- curl -f "http://api-service:8000/forecast/optimized/DE?carbon_mode=LOW"
+          
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "Functional test failed"
+            exit 1
+          }
+          
+          Write-Host "All functional tests passed"
+
+      - name: Verify Deployment Success
+        shell: powershell
+        run: |
+          Write-Host "Production deployment successful!"
+          Write-Host ""
+          Write-Host "Deployment Status:"
+          kubectl get deployments --namespace=$env:NAMESPACE
+          Write-Host ""
+          Write-Host "Pod Status:"
+          kubectl get pods --namespace=$env:NAMESPACE
+          Write-Host ""
+          Write-Host "Services:"
+          kubectl get services --namespace=$env:NAMESPACE
+          Write-Host ""
+          Write-Host "Access URLs (Docker Desktop):"
+          Write-Host "   GUI: http://localhost:30001"
+          Write-Host "   API: http://localhost:30000"
+
+      - name: Cleanup temp files
+        shell: powershell
+        run: |
+          Remove-Item k8s/k8s-deployment-production.yaml -Force -ErrorAction SilentlyContinue
+
+      - name: Auto-Rollback on Failure
+        if: failure()
+        shell: powershell
+        run: |
+          Write-Host "Deployment failed! Initiating automatic rollback..."
+          
+          Write-Host "Recent logs:"
+          kubectl logs -l app=api-gateway --tail=100 --namespace=$env:NAMESPACE
+          
+          kubectl rollout undo deployment/api-deployment --namespace=$env:NAMESPACE
+          kubectl rollout undo deployment/xgb-deployment --namespace=$env:NAMESPACE
+          kubectl rollout undo deployment/hw-deployment --namespace=$env:NAMESPACE
+          kubectl rollout undo deployment/gui-deployment --namespace=$env:NAMESPACE
+          
+          Write-Host "Rollback initiated"
+          
+          kubectl rollout status deployment/api-deployment --namespace=$env:NAMESPACE
+          
+          Write-Host "Rollback completed"
+
+      - name: Create Deployment Tag
+        if: success()
+        shell: powershell
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss UTC"
+          git tag -a "prod-${{ github.sha }}" -m "Production deployment $timestamp"
+          git push origin "prod-${{ github.sha }}"
+        continue-on-error: true
+
+      - name: Post-Deployment Report
+        if: always()
+        shell: powershell
+        run: |
+          Write-Host "Post-Deployment Report"
+          Write-Host "========================"
+          Write-Host "Commit: ${{ github.sha }}"
+          Write-Host "Branch: ${{ github.ref_name }}"
+          Write-Host "Author: ${{ github.actor }}"
+          Write-Host "Time: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss UTC')"
+          Write-Host ""
+          Write-Host "Revision History:"
+          kubectl rollout history deployment/api-deployment --namespace=$env:NAMESPACEname: Deploy to Production
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:  # Allow manual trigger
+
+env:
+  NAMESPACE: production
+
+jobs:
+  deploy-production:
+    name: Deploy to Production
+    runs-on: self-hosted
+    environment: 
+      name: production
+      url: http://localhost:30001
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Manual Approval Required
+        shell: powershell
+        run: |
+          Write-Host "Manual approval required for production deployment"
+          Write-Host "This will be handled by GitHub Environment protection rules"
+      
+      - name: Verify Docker Desktop Kubernetes
+        shell: powershell
+        run: |
+          kubectl version --client
+          kubectl cluster-info
+          
+          $context = kubectl config current-context
+          Write-Host "Current context: $context"
+          
+          if ($context -ne "docker-desktop") {
+            Write-Host "Warning: Not using docker-desktop context"
+          }
+      
+      - name: Build Production Images with docker-compose
+        shell: powershell
+        run: |
+          Write-Host "Building production images with commit SHA: ${{ github.sha }}"
+          
+          # Build using docker-compose
+          docker-compose build
+          
+          # Tag with commit SHA
+          docker tag energy-orchestrator:latest energy-orchestrator:${{ github.sha }}
+          docker tag energy-xgb:latest energy-xgb:${{ github.sha }}
+          docker tag energy-hw:latest energy-hw:${{ github.sha }}
+          docker tag energy-gui:latest energy-gui:${{ github.sha }}
+          
+          # Tag with production
+          docker tag energy-orchestrator:latest energy-orchestrator:production
+          docker tag energy-xgb:latest energy-xgb:production
+          docker tag energy-hw:latest energy-hw:production
+          docker tag energy-gui:latest energy-gui:production
+          
+          Write-Host "Images built and tagged"
+
+      - name: Verify images
+        shell: powershell
+        run: |
+          Write-Host "Verifying production images..."
+          docker images | Select-String energy
+          
+          # Images automatically available in Docker Desktop Kubernetes
+          Write-Host "Images available to Kubernetes"
+
+      - name: Create/Update Namespace
+        shell: powershell
+        run: |
+          kubectl create namespace $env:NAMESPACE --dry-run=client -o yaml | kubectl apply -f -
+          kubectl label namespace $env:NAMESPACE environment=production --overwrite
+
+      - name: Create Production ConfigMap
+        shell: powershell
+        run: |
+          kubectl create configmap app-config `
+            --from-literal=ENV=production `
+            --from-literal=LOG_LEVEL=WARNING `
+            --from-literal=PYTHONUNBUFFERED=1 `
+            --from-literal=API_URL=http://api-service:8000 `
+            --from-literal=XGB_SERVICE_URL=http://xgb-service:8001 `
+            --from-literal=HW_SERVICE_URL=http://hw-service:8002 `
+            --namespace=$env:NAMESPACE `
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Backup Current Deployment
+        shell: powershell
+        run: |
+          Write-Host "Backing up current deployment..."
+          $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
+          kubectl get deployment --namespace=$env:NAMESPACE -o yaml `
+            | Out-File "backup-deployment-$timestamp.yaml" -Encoding utf8
+        continue-on-error: true
+      
+      - name: Update deployment manifests
+        shell: powershell
+        run: |
+          # Update to use production tag and imagePullPolicy Never
           $content = Get-Content k8s-deployment.yaml -Raw
           $content = $content -replace ':latest', ':production'
           $content = $content -replace 'imagePullPolicy:\s*Always', 'imagePullPolicy: Never'

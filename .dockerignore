@@ -1,6 +1,9 @@
+@"
+# Exclude large files from Docker build
 venv/
 .venv/
 __pycache__/
 .git/
 .vscode/
 .idea/
+"@ | Out-File -FilePath .dockerignore -Encoding UTF8

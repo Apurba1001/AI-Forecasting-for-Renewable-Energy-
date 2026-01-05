@@ -18,14 +18,14 @@ AVAILABLE_MODELS = {
         "path": MODELS_DIR / "lightweight",
         "name": "Lightweight Model",
         "description": "Fast inference, minimal emissions",
-        "co2_per_request": 0.02
+        "co2_per_request": 0.02,
     },
     "performance": {
         "path": MODELS_DIR / "performance",
-        "name": "Performance Model", 
+        "name": "Performance Model",
         "description": "Maximum accuracy, higher emissions",
-        "co2_per_request": 0.15
-    }
+        "co2_per_request": 0.15,
+    },
 }
 
 # Default settings

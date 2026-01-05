@@ -12,11 +12,6 @@ services:
     depends_on:
       - hw_service
       - xgb_service
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
-      interval: "5s"
-      timeout: "2s"
-      retries: 5
 
   hw_service:
     image: energy-hw
