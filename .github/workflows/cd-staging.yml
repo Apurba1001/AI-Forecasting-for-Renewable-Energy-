@@ -19,165 +19,188 @@ jobs:
         uses: actions/checkout@v4
       
       - name: Verify Docker Desktop Kubernetes
-        shell: bash
+        shell: pwsh
         run: |
           kubectl version --client
           kubectl cluster-info
-          
+
           # Verify we're using docker-desktop context
-          CONTEXT=$(kubectl config current-context)
-          if [[ "$CONTEXT" != "docker-desktop" ]]; then
-            echo "❌ Not using docker-desktop context. Current: $CONTEXT"
-            echo "Switch with: kubectl config use-context docker-desktop"
-            exit 1
-          fi
-          
-          echo "✅ Using Docker Desktop Kubernetes"
+          $context = kubectl config current-context
+
+          if ($context -ne "docker-desktop") {
+              Write-Host "❌ Not using docker-desktop context. Current: $context"
+              Write-Host "Switch with: kubectl config use-context docker-desktop"
+              exit 1
+          }
+
+          Write-Host "✅ Using Docker Desktop Kubernetes"
+
       
       - name: Build images with docker-compose
-        shell: bash
+        shell: pwsh
         run: |
-          echo "🏗️ Building Docker images with docker-compose..."
-          
-          # Build all services using docker-compose
+          Write-Host "🏗️ Building Docker images with docker-compose..."
+
           docker-compose build
-          
-          echo "✅ Build completed"
-      
+
+          Write-Host "✅ Build completed"
+
+
       - name: Tag images for staging
-        shell: bash
+        shell: pwsh
         run: |
-          echo "🏷️ Tagging images for staging..."
-          
-          # Tag with staging label
+          Write-Host "🏷️ Tagging images for staging..."
+
           docker tag energy-orchestrator:latest energy-orchestrator:staging
           docker tag energy-xgb:latest energy-xgb:staging
           docker tag energy-hw:latest energy-hw:staging
           docker tag energy-gui:latest energy-gui:staging
-          
-          echo "✅ Images tagged"
-      
+
+          Write-Host "✅ Images tagged"
+
+
       - name: Verify images available
-        shell: bash
+        shell: pwsh
         run: |
-          echo "📦 Verifying images..."
-          docker images | grep energy
-          
-          # Images are automatically available to Docker Desktop Kubernetes
-          echo "✅ Images available to Kubernetes"
-      
+          Write-Host "📦 Verifying images..."
+
+          docker images | Select-String "energy"
+
+          Write-Host "✅ Images available to Kubernetes"
+
+
       - name: Create/Update Namespace
-        shell: bash
+        shell: pwsh
         run: |
-          kubectl create namespace ${{ env.NAMESPACE }} --dry-run=client -o yaml | kubectl apply -f -
-          kubectl label namespace ${{ env.NAMESPACE }} environment=staging --overwrite
-      
+          kubectl create namespace $env:NAMESPACE --dry-run=client -o yaml | kubectl apply -f -
+          kubectl label namespace $env:NAMESPACE environment=staging --overwrite
+
+
       - name: Create ConfigMap
-        shell: bash
+        shell: pwsh
         run: |
-          kubectl create configmap app-config \
-            --from-literal=ENV=staging \
-            --from-literal=LOG_LEVEL=INFO \
-            --from-literal=API_URL=http://api-service:8000 \
-            --from-literal=XGB_SERVICE_URL=http://xgb-service:8001 \
-            --from-literal=HW_SERVICE_URL=http://hw-service:8002 \
-            --namespace=${{ env.NAMESPACE }} \
+          kubectl create configmap app-config `
+            --from-literal=ENV=staging `
+            --from-literal=LOG_LEVEL=INFO `
+            --from-literal=API_URL=http://api-service:8000 `
+            --from-literal=XGB_SERVICE_URL=http://xgb-service:8001 `
+            --from-literal=HW_SERVICE_URL=http://hw-service:8002 `
+            --namespace=$env:NAMESPACE `
             --dry-run=client -o yaml | kubectl apply -f -
-      
+
+
       - name: Update deployment manifests
-        shell: bash
+        shell: pwsh
         run: |
-          # Update image tags to :staging and set imagePullPolicy to Never
-          sed -e 's/:latest/:staging/g' \
-              -e 's/imagePullPolicy: Always/imagePullPolicy: Never/g' \
-              k8s/deployment.yaml > k8s/deployment-staging.yaml
-          
-          echo "✅ Deployment manifest updated"
-      
+          Write-Host "Updating deployment manifest for staging..."
+
+          $content = Get-Content k8s/deployment.yaml -Raw
+          $content = $content -replace ':latest', ':staging'
+          $content = $content -replace 'imagePullPolicy:\s*Always', 'imagePullPolicy: Never'
+
+          $content | Out-File k8s/deployment-staging.yaml -Encoding utf8
+
+          Write-Host "✅ Deployment manifest updated"
+
       - name: Deploy Services
-        shell: bash
+        shell: pwsh
         run: |
-          echo "🚀 Deploying to staging namespace..."
-          
-          kubectl apply -f k8s/deployment-staging.yaml --namespace=${{ env.NAMESPACE }}
-          kubectl apply -f k8s/service.yaml --namespace=${{ env.NAMESPACE }}
-          
-          echo "✅ Manifests applied"
-      
+          Write-Host "🚀 Deploying to staging namespace..."
+
+          kubectl apply -f k8s/deployment-staging.yaml --namespace=$env:NAMESPACE
+          kubectl apply -f k8s/service.yaml --namespace=$env:NAMESPACE
+
+          Write-Host "✅ Manifests applied"
+
+
       - name: Wait for Rollout
-        shell: bash
+        shell: pwsh
         run: |
-          echo "⏳ Waiting for deployments to complete..."
-          
-          kubectl rollout status deployment/api-deployment \
-            --namespace=${{ env.NAMESPACE }} --timeout=5m
-          
-          kubectl rollout status deployment/xgb-deployment \
-            --namespace=${{ env.NAMESPACE }} --timeout=5m
-          
-          kubectl rollout status deployment/hw-deployment \
-            --namespace=${{ env.NAMESPACE }} --timeout=5m
-          
-          kubectl rollout status deployment/gui-deployment \
-            --namespace=${{ env.NAMESPACE }} --timeout=5m
-      
+          Write-Host "⏳ Waiting for deployments to complete..."
+
+          kubectl rollout status deployment/api-deployment `
+            --namespace=$env:NAMESPACE --timeout=5m
+
+          kubectl rollout status deployment/xgb-deployment `
+            --namespace=$env:NAMESPACE --timeout=5m
+
+          kubectl rollout status deployment/hw-deployment `
+            --namespace=$env:NAMESPACE --timeout=5m
+
+          kubectl rollout status deployment/gui-deployment `
+            --namespace=$env:NAMESPACE --timeout=5m
+
+
       - name: Verify Deployment
-        shell: bash
+        shell: pwsh
         run: |
-          echo "🔍 Verifying deployment..."
-          kubectl get pods --namespace=${{ env.NAMESPACE }}
-          kubectl get services --namespace=${{ env.NAMESPACE }}
-      
+          Write-Host "🔍 Verifying deployment..."
+
+          kubectl get pods --namespace=$env:NAMESPACE
+          kubectl get services --namespace=$env:NAMESPACE
+
+
       - name: Run Smoke Tests
-        shell: bash
+        shell: pwsh
         run: |
-          echo "🧪 Running smoke tests..."
-          sleep 30  # Wait for services to be fully ready
-          
+          Write-Host "🧪 Running smoke tests..."
+
+          Start-Sleep -Seconds 30  # Wait for services to be fully ready
+
           # Test orchestrator health
-          kubectl run smoke-test-health \
-            --image=curlimages/curl \
-            --rm -i --restart=Never \
-            --namespace=${{ env.NAMESPACE }} \
-            -- curl -f http://api-service:8000/health || {
-              echo "❌ Health check failed"
-              kubectl logs -l app=api-gateway --tail=50 --namespace=${{ env.NAMESPACE }}
+          try {
+              kubectl run smoke-test-health `
+                --image=curlimages/curl `
+                --rm -i --restart=Never `
+                --namespace=$env:NAMESPACE `
+                -- curl -f http://api-service:8000/health
+          } catch {
+              Write-Host "❌ Health check failed"
+              kubectl logs -l app=api-gateway --tail=50 --namespace=$env:NAMESPACE
               exit 1
-            }
-          
+          }
+
           # Test forecast endpoint
-          kubectl run smoke-test-forecast \
-            --image=curlimages/curl \
-            --rm -i --restart=Never \
-            --namespace=${{ env.NAMESPACE }} \
-            -- curl -f "http://api-service:8000/forecast/optimized/DE?carbon_mode=LOW" || {
-              echo "❌ Forecast endpoint failed"
+          try {
+              kubectl run smoke-test-forecast `
+                --image=curlimages/curl `
+                --rm -i --restart=Never `
+                --namespace=$env:NAMESPACE `
+                -- curl -f "http://api-service:8000/forecast/optimized/DE?carbon_mode=LOW"
+          } catch {
+              Write-Host "❌ Forecast endpoint failed"
               exit 1
-            }
-      
+          }
+
+
       - name: Get Access URL
-        shell: bash
+        shell: pwsh
         run: |
-          echo "✅ Staging deployment successful!"
-          echo ""
-          echo "📍 Access URLs (Docker Desktop):"
-          echo "   GUI: http://localhost:30001"
-          echo "   API: http://localhost:30000"
-          echo ""
-          echo "🔍 Check status: kubectl get all -n staging"
-      
+          Write-Host "✅ Staging deployment successful!"
+          Write-Host ""
+          Write-Host "📍 Access URLs (Docker Desktop):"
+          Write-Host "   GUI: http://localhost:30001"
+          Write-Host "   API: http://localhost:30000"
+          Write-Host ""
+          Write-Host "🔍 Check status: kubectl get all -n staging"
+
+
       - name: Cleanup temp files
-        shell: bash
+        shell: pwsh
         run: |
-          rm -f k8s/deployment-staging.yaml
-      
+          if (Test-Path k8s/deployment-staging.yaml) {
+              Remove-Item k8s/deployment-staging.yaml -Force
+          }
+
+
       - name: Notify on Failure
         if: failure()
-        shell: bash
+        shell: pwsh
         run: |
-          echo "❌ Staging deployment failed!"
-          echo "Logs:"
-          kubectl logs -l app=api-gateway --tail=50 --namespace=${{ env.NAMESPACE }}
-          
+          Write-Host "❌ Staging deployment failed!"
+          Write-Host "Logs:"
+
+          kubectl logs -l app=api-gateway --tail=50 --namespace=$env:NAMESPACE
+
           # Rollback on failure
-          kubectl rollout undo deployment/api-deployment --namespace=${{ env.NAMESPACE }}
+          kubectl rollout undo deployment/api-deployment --namespace=$env:NAMESPACE
