@@ -2,7 +2,7 @@ name: Deploy to Staging
 
 on:
   push:
-    branches: [ develop ]
+    branches: [ Apurba, Andreas ]
   workflow_dispatch:  # Allow manual trigger
 
 env:
