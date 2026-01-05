@@ -123,7 +123,7 @@ jobs:
       
       - name: Test image
         run: |
-          docker images | grep energy-${{ matrix.service.name }}
+          docker images | Select-String "energy-hw-service"
 
   security:
     name: Security Scan
