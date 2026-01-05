@@ -28,44 +28,44 @@ jobs:
           $context = kubectl config current-context
 
           if ($context -ne "docker-desktop") {
-              Write-Host "❌ Not using docker-desktop context. Current: $context"
+              Write-Host "Not using docker-desktop context. Current: $context"
               Write-Host "Switch with: kubectl config use-context docker-desktop"
               exit 1
           }
 
-          Write-Host "✅ Using Docker Desktop Kubernetes"
+          Write-Host "Using Docker Desktop Kubernetes"
 
       
       - name: Build images with docker-compose
         shell: powershell
         run: |
-          Write-Host "🏗️ Building Docker images with docker-compose..."
+          Write-Host "Building Docker images with docker-compose..."
 
           docker-compose build
 
-          Write-Host "✅ Build completed"
+          Write-Host "Build completed"
 
 
       - name: Tag images for staging
         shell: powershell
         run: |
-          Write-Host "🏷️ Tagging images for staging..."
+          Write-Host "Tagging images for staging..."
           docker tag ai-forecasting-for-renewable-energy--orchestrator:latest ai-forecasting-for-renewable-energy--orchestrator:staging
           docker tag ai-forecasting-for-renewable-energy--xgb_service:latest ai-forecasting-for-renewable-energy--xgb_service:staging
           docker tag ai-forecasting-for-renewable-energy--hw_service:latest ai-forecasting-for-renewable-energy--hw_service:staging
           docker tag ai-forecasting-for-renewable-energy--gui:latest ai-forecasting-for-renewable-energy--gui:staging
 
-          Write-Host "✅ Images tagged"
+          Write-Host "Images tagged"
 
 
       - name: Verify images available
         shell: powershell
         run: |
-          Write-Host "📦 Verifying images..."
+          Write-Host "Verifying images..."
 
           docker images | Select-String "energy"
 
-          Write-Host "✅ Images available to Kubernetes"
+          Write-Host "Images available to Kubernetes"
 
 
       - name: Create/Update Namespace
@@ -99,23 +99,23 @@ jobs:
 
           $content | Out-File k8s/deployment-staging.yaml -Encoding utf8
 
-          Write-Host "✅ Deployment manifest updated"
+          Write-Host "Deployment manifest updated"
 
       - name: Deploy Services
         shell: powershell
         run: |
-          Write-Host "🚀 Deploying to staging namespace..."
+          Write-Host "Deploying to staging namespace..."
 
           kubectl apply -f k8s/deployment-staging.yaml --namespace=$env:NAMESPACE
           kubectl apply -f k8s/service.yaml --namespace=$env:NAMESPACE
 
-          Write-Host "✅ Manifests applied"
+          Write-Host "Manifests applied"
 
 
       - name: Wait for Rollout
         shell: powershell
         run: |
-          Write-Host "⏳ Waiting for deployments to complete..."
+          Write-Host "Waiting for deployments to complete..."
 
           kubectl rollout status deployment/api-deployment `
             --namespace=$env:NAMESPACE --timeout=5m
@@ -133,7 +133,7 @@ jobs:
       - name: Verify Deployment
         shell: powershell
         run: |
-          Write-Host "🔍 Verifying deployment..."
+          Write-Host "Verifying deployment..."
 
           kubectl get pods --namespace=$env:NAMESPACE
           kubectl get services --namespace=$env:NAMESPACE
@@ -142,7 +142,7 @@ jobs:
       - name: Run Smoke Tests
         shell: powershell
         run: |
-          Write-Host "🧪 Running smoke tests..."
+          Write-Host "Running smoke tests..."
 
           Start-Sleep -Seconds 30  # Wait for services to be fully ready
 
@@ -154,7 +154,7 @@ jobs:
                 --namespace=$env:NAMESPACE `
                 -- curl -f http://api-service:8000/health
           } catch {
-              Write-Host "❌ Health check failed"
+              Write-Host "Health check failed"
               kubectl logs -l app=api-gateway --tail=50 --namespace=$env:NAMESPACE
               exit 1
           }
@@ -167,7 +167,7 @@ jobs:
                 --namespace=$env:NAMESPACE `
                 -- curl -f "http://api-service:8000/forecast/optimized/DE?carbon_mode=LOW"
           } catch {
-              Write-Host "❌ Forecast endpoint failed"
+              Write-Host "Forecast endpoint failed"
               exit 1
           }
 
@@ -175,13 +175,13 @@ jobs:
       - name: Get Access URL
         shell: powershell
         run: |
-          Write-Host "✅ Staging deployment successful!"
+          Write-Host "Staging deployment successful!"
           Write-Host ""
-          Write-Host "📍 Access URLs (Docker Desktop):"
+          Write-Host "Access URLs (Docker Desktop):"
           Write-Host "   GUI: http://localhost:30001"
           Write-Host "   API: http://localhost:30000"
           Write-Host ""
-          Write-Host "🔍 Check status: kubectl get all -n staging"
+          Write-Host "Check status: kubectl get all -n staging"
 
 
       - name: Cleanup temp files
@@ -196,7 +196,7 @@ jobs:
         if: failure()
         shell: powershell
         run: |
-          Write-Host "❌ Staging deployment failed!"
+          Write-Host "Staging deployment failed!"
           Write-Host "Logs:"
 
           kubectl logs -l app=api-gateway --tail=50 --namespace=$env:NAMESPACE
