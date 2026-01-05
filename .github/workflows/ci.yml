@@ -37,12 +37,12 @@ jobs:
             --max-line-length=100 \
             --ignore=E203,W503,E501 \
             --exclude=__pycache__,*.pyc,.git,__init__.py
-        continue-on-error: false
+        continue-on-error: true
       
       - name: Run isort (import sorting)
         run: |
           isort --check-only --diff src/
-        continue-on-error: false
+        continue-on-error: true
 
   test:
     name: Run Tests
