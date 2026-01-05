@@ -102,10 +102,10 @@ jobs:
         shell: powershell
         run: |
           # Update to use production tag and imagePullPolicy Never
-          $content = Get-Content k8s/k8s-deployment.yaml -Raw
+          $content = Get-Content k8s-deployment.yaml -Raw
           $content = $content -replace ':latest', ':production'
           $content = $content -replace 'imagePullPolicy:\s*Always', 'imagePullPolicy: Never'
-          $content | Out-File k8s/k8s-deployment-production.yaml -Encoding utf8
+          $content | Out-File k8s-deployment-production.yaml -Encoding utf8
 
           Write-Host " Production manifest created"
 
@@ -115,7 +115,7 @@ jobs:
           Write-Host "Deploying to production..."
           
           # Apply manifests
-          kubectl apply -f k8s/k8s-deployment-production.yaml --namespace=$env:NAMESPACE
+          kubectl apply -f k8s-deployment-production.yaml --namespace=$env:NAMESPACE
           
           # Annotate deployment with metadata
           kubectl annotate deployment api-deployment `
@@ -209,7 +209,7 @@ jobs:
       - name: Cleanup temp files
         shell: powershell
         run: |
-          Remove-Item k8s/k8s-deployment-production.yaml -Force -ErrorAction SilentlyContinue
+          Remove-Item k8s-deployment-production.yaml -Force -ErrorAction SilentlyContinue
 
       - name: Auto-Rollback on Failure
         if: failure()
