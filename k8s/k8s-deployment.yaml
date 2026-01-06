@@ -20,24 +20,22 @@ spec:
       containers:
       - name: xgb-container
         image: energy-xgb:production
-        imagePullPolicy: IfNotPresent
-        image: energy-xgb:production
-        imagePullPolicy: IfNotPresent
+        imagePullPolicy: Never
         ports:
         - containerPort: 8001
         livenessProbe:
           httpGet:
             path: /health
             port: 8001
-          initialDelaySeconds: 5
-          periodSeconds: 5
+          initialDelaySeconds: 30
+          periodSeconds: 10
           timeoutSeconds: 5
           failureThreshold: 3
         readinessProbe:
           httpGet:
             path: /health
             port: 8001
-          initialDelaySeconds: 10
+          initialDelaySeconds: 25
           periodSeconds: 2
           timeoutSeconds: 3
           failureThreshold: 3
@@ -85,9 +83,7 @@ spec:
       containers:
       - name: hw-container
         image: energy-hw:production
-        imagePullPolicy: IfNotPresent
-        image: energy-hw:production
-        imagePullPolicy: IfNotPresent
+        imagePullPolicy: Never
         ports:
         - containerPort: 8002
         # ✅ ADDED: Health checks
@@ -95,7 +91,7 @@ spec:
           httpGet:
             path: /health
             port: 8002
-          initialDelaySeconds: 15
+          initialDelaySeconds: 30
           periodSeconds: 10
           timeoutSeconds: 5
           failureThreshold: 3
@@ -103,7 +99,7 @@ spec:
           httpGet:
             path: /health
             port: 8002
-          initialDelaySeconds: 10
+          initialDelaySeconds: 25
           periodSeconds: 5
           timeoutSeconds: 3
           failureThreshold: 3
@@ -164,7 +160,7 @@ spec:
           httpGet:
             path: /health
             port: 8000
-          initialDelaySeconds: 20
+          initialDelaySeconds: 40
           periodSeconds: 10
           timeoutSeconds: 5
           failureThreshold: 3
@@ -172,7 +168,7 @@ spec:
           httpGet:
             path: /health
             port: 8000
-          initialDelaySeconds: 15
+          initialDelaySeconds: 35
           periodSeconds: 5
           timeoutSeconds: 3
           failureThreshold: 3
