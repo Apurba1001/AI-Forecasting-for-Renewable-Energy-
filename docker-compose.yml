@@ -4,10 +4,13 @@ services:
     build: .
     ports:
       - "8000:8000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock  # <--- CRITICAL: Gives control permission
     environment:
       - PYTHONPATH=/app
       - XGB_SERVICE_URL=http://xgb_service:8001
       - HW_SERVICE_URL=http://hw_service:8002
+      - HEAVY_CONTAINER_NAME=ai-forecasting-for-renewable-energy--xgb_service-1
     command: uvicorn src.api.main:app --host 0.0.0.0 --port 8000
     depends_on:
       - hw_service
