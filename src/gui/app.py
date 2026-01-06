@@ -1056,13 +1056,13 @@ with st.sidebar:
     st.divider()
 
     # Section 4: Model Selection
-    st.subheader("🤖 Model Selection")
+    st.subheader("⚡ Grid Carbon Intensity")
 
     # Model type selection with better labels
     model_options = {
-        "Automatic": "🤖 Automatic (System Chooses Based on Carbon Intensity)",
-        "Low Cost": "🌱 Low Cost (Fast, Eco-Friendly)",
-        "High Cost": "⚡ High Cost (Accurate, Slower)",
+        "Automatic": "🤖 Automatic (Real-time)",
+        "Low Cost": "🌱 Low  (Eco-Friendly)",
+        "High Cost": "⚡ High  (Dirty Grid)",
     }
 
     model_type = st.radio(
@@ -1091,33 +1091,9 @@ with st.sidebar:
     if actual_model == "Low Cost":
         model_key = "lightweight"
         carbon_emissions = load_carbon_data(model_key)
-        auto_badge = "🤖 Auto-Selected | " if model_type == "Automatic" else ""
-        st.markdown(
-            f"""
-        <div class="model-card eco-model">
-            <strong>{auto_badge}🌱 Low Cost Model</strong><br>
-            • Fast inference<br>
-            • Lower accuracy<br>
-            • Minimal emissions<br>
-        </div>
-        """,
-            unsafe_allow_html=True,
-        )
     else:  # High Cost
         model_key = "performance"
         carbon_emissions = load_carbon_data(model_key)
-        auto_badge = "🤖 Auto-Selected | " if model_type == "Automatic" else ""
-        st.markdown(
-            f"""
-        <div class="model-card performance-model">
-            <strong>{auto_badge}⚡ High Cost Model</strong><br>
-            • Slower inference<br>
-            • Higher accuracy<br>
-            • Increased emissions<br>
-        </div>
-        """,
-            unsafe_allow_html=True,
-        )
 
     st.divider()
 
