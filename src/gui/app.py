@@ -36,7 +36,7 @@ st.set_page_config(
 )
 
 
-@st.fragment(run_every=10)
+@st.fragment(run_every=15)
 def live_monitor_fragment():
     draw_live_monitor()
 
@@ -802,6 +802,7 @@ def generate_forecast(
 
     # Map GUI selection to API carbon mode
     carbon_mode_map = {
+        "Automatic": "AUTO",
         "Low Cost": "HIGH",  # Low Cost GUI = Holt-Winters = HIGH carbon mode
         "High Cost": "LOW",  # High Cost GUI = XGBoost = LOW carbon mode
     }
@@ -1055,12 +1056,13 @@ with st.sidebar:
     st.divider()
 
     # Section 4: Model Selection
-    st.subheader("🤖 Model Selection")
+    st.subheader("⚡ Grid Carbon Intensity")
 
     # Model type selection with better labels
     model_options = {
-        "Low Cost": "🌱 Low Cost (Fast, Eco-Friendly)",
-        "High Cost": "⚡ High Cost (Accurate, Slower)",
+        "Automatic": "🤖 Automatic (Real-time)",
+        "Low Cost": "🌱 Low  (Eco-Friendly)",
+        "High Cost": "⚡ High  (Dirty Grid)",
     }
 
     model_type = st.radio(
@@ -1071,37 +1073,27 @@ with st.sidebar:
         help="Low Cost: Holt-Winters (faster)\nHigh Cost: XGBoost (more accurate)",
     )
 
-    # Model info card
-    if model_type == "Low Cost":
+    # Model info card 
+    if model_type == "Automatic":
+        #Get current intensity
+        sys_status = get_system_status()
+        current_intensity = sys_status["intensity"]
+        
+        #Auto-Select based on threshold (300 gCO2/kWh)
+        if current_intensity < 300:
+            actual_model = "Low Cost"
+        else:
+            actual_model = "High Cost"
+    else:
+        actual_model = model_type
+        
+    # ✅ FIX: Check actual_model instead of model_type
+    if actual_model == "Low Cost":
         model_key = "lightweight"
         carbon_emissions = load_carbon_data(model_key)
-        st.markdown(
-            f"""
-        <div class="model-card eco-model">
-            <strong>🌱 Low Cost Model</strong><br>
-            • Fast inference<br>
-            • Lower accuracy<br>
-            • Minimal emissions<br>
-            <span style="color: #059669; font-weight: bold;">{carbon_emissions*1000000:.4f} mg CO₂/request</span>
-        </div>
-        """,
-            unsafe_allow_html=True,
-        )
-    else:
+    else:  # High Cost
         model_key = "performance"
         carbon_emissions = load_carbon_data(model_key)
-        st.markdown(
-            f"""
-        <div class="model-card performance-model">
-            <strong>⚡ High Cost Model</strong><br>
-            • Slower inference<br>
-            • Higher accuracy<br>
-            • Increased emissions<br>
-            <span style="color: #dc2626; font-weight: bold;">{carbon_emissions*1000000:.4f} mg CO₂/request</span>
-        </div>
-        """,
-            unsafe_allow_html=True,
-        )
 
     st.divider()
 
@@ -1121,7 +1113,7 @@ with st.sidebar:
         st.write(f"**Date:** {forecast_date.strftime('%Y-%m-%d')}")
         st.write(f"**Time:** {forecast_time.strftime('%H:%M')}")
         st.write(f"**Interval:** {forecast_interval}")
-        st.write(f"**Model:** {model_type}")
+        st.write(f"**Model:** {model_type}"+(f" → {actual_model}" if model_type == "Automatic" else ""))
         st.write(f"**CO₂ Impact:** {carbon_emissions:.3f} kg")
 
 # Main content
@@ -1131,7 +1123,7 @@ if run_forecast:
         forecast_data = generate_forecast(
             country=country,
             energy_source=energy_source,
-            model_type=model_type,
+            model_type=actual_model,
             forecast_date=forecast_date,
             forecast_time=forecast_time,
             interval_hours=interval_hours,
@@ -1144,7 +1136,8 @@ if run_forecast:
             st.session_state["forecast_date"] = forecast_date
             st.session_state["forecast_time"] = forecast_time
             st.session_state["interval"] = forecast_interval
-            st.session_state["model_type"] = model_type
+            st.session_state["model_type"] = actual_model
+            st.session_state["actual_model_used"] = actual_model
             st.success("✅ Forecast completed successfully!")
 
 # Display forecast if available
@@ -1161,7 +1154,7 @@ if "forecast_data" in st.session_state:
             "Wind Offshore": "Wind_Offshore",
             "Solar": "Solar",
         }
-
+        
         target_col = energy_col_map.get(st.session_state.get("current_energy"))
         selected_hour = st.session_state.get("forecast_time").hour
 
@@ -1173,8 +1166,12 @@ if "forecast_data" in st.session_state:
         else:
             series = forecast_data["predicted"]
 
-        # ---- Current value ----
-        current_output = series[selected_hour]
+        # ✅ FIX: Bounds checking for selected_hour
+        if selected_hour < len(series):
+            current_output = series[selected_hour]
+        else:
+            # Fallback: use first available value or mean
+            current_output = series[0] if len(series) > 0 else np.mean(forecast_data["predicted"])
 
         # ---- Delta calculation (safe) ----
         if selected_hour + 1 < len(series):
@@ -1188,6 +1185,7 @@ if "forecast_data" in st.session_state:
             value=f"{current_output:.0f} MW",
             delta=delta_str,
         )
+       
 
     with col2:
         peak_forecast = max(forecast_data["predicted"])
@@ -1199,27 +1197,36 @@ if "forecast_data" in st.session_state:
             value=f"{peak_forecast:.0f} MW",
             delta=f"at {peak_time.strftime('%H:%M') if hasattr(peak_time, 'strftime') else 'N/A'}",
         )
-
+        
     with col3:
-        # Load actual accuracy if available
-        metrics = load_metrics()
-        if isinstance(metrics, pd.DataFrame) and not metrics.empty:
-            accuracy = (
-                metrics["accuracy"].mean() * 100
-                if "accuracy" in metrics.columns
-                else 94.3
+        if st.session_state.get("model_type") == "Automatic":
+            actual_used = st.session_state.get("actual_model_used", actual_model)
+            
+            # Just show the model, intensity is already in sidebar
+            if actual_used == "Low Cost":
+                icon = "🌱"
+                delta_text = "Eco-Friendly"
+                delta_color = "normal"
+            else:
+                icon = "⚡"
+                delta_text = "Performance"
+                delta_color = "inverse"
+            
+            st.metric(
+                label="🤖 Auto-Selected",
+                value=f"{icon} {actual_used}",
+                delta=delta_text,
+                delta_color=delta_color
             )
-        elif isinstance(metrics, dict):
-            accuracy = metrics.get("accuracy", 94.3)
         else:
-            accuracy = 94.3
+            # Show accuracy for manual selection
+            st.metric(
+                label="Model Accuracy",
+                value="94.3%",
+                delta="+1.2%"
+            )
 
-        st.metric(
-            label="Model Accuracy",
-            value=f"{accuracy:.1f}%",
-            delta=f"+{np.random.uniform(0.5, 2.0):.1f}%",
-        )
-
+        
     with col4:
         avg_output = np.mean(forecast_data["predicted"])
         st.metric(

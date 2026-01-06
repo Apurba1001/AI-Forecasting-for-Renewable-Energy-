@@ -41,7 +41,7 @@ class CarbonSimulator:
             "carbon_intensity": round(carbon_val, 1),
             "status": status,
             "is_manual_override": is_manual,
-            "unit": "gCO2/kWh",
+            "unit": "gCO₂eq/kWh",
         }
 
 
