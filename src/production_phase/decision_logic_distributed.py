@@ -1,13 +1,49 @@
 import logging
 import os
+from fastapi import HTTPException
 import pandas as pd
 import requests
+from datetime import datetime
 from src.production_phase.carbon_simulator import CarbonSimulator
 import docker
 import time
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+def emergency_fallback(country_code: str, error_msg: str):
+    """Local safety net inside the orchestrator to prevent circular imports."""
+    from datetime import datetime, timedelta
+    import math
+    
+    base_time = datetime.now().replace(minute=0, second=0, microsecond=0)
+    static_forecast = []
+
+    for i in range(24):
+        t = base_time + timedelta(hours=i)
+        solar = max(0, 100 * (1 - abs(12 - i) / 12)) if 6 <= i <= 18 else 0
+        wind_on = 80 + 30 * math.sin(i * math.pi / 12)
+        wind_off = 60 + 20 * math.sin((i + 6) * math.pi / 12)
+
+        static_forecast.append({
+            "datetime_utc": t.strftime("%Y-%m-%d %H:%M:%S"),
+            "Solar": round(solar, 2),
+            "Wind_Onshore": round(wind_on, 2),
+            "Wind_Offshore": round(wind_off, 2),
+            "Total_Generation": round(solar + wind_on + wind_off, 2),
+        })
+
+    return {
+        "metadata": {
+            "selected_model": "Emergency Static Fallback",
+            "status": "degraded",
+            "error": error_msg,
+            "forecast_records": 24,
+            "country_code": country_code.upper(),
+            "timestamp": datetime.now().isoformat(),
+        },
+        "forecast": static_forecast,
+    }
 
 
 class DistributedOrchestrator:
@@ -17,8 +53,8 @@ class DistributedOrchestrator:
 
         # 2. Service Discovery (Docker Network Names)
         # ✅ FIXED: Default to localhost for local development
-        self.XGB_URL = os.getenv("XGB_SERVICE_URL", "http://xgb-service:8001")
-        self.HW_URL = os.getenv("HW_SERVICE_URL", "http://hw-service:8002")
+        self.XGB_URL = os.getenv("XGB_SERVICE_URL", "http://xgb_service:8001")
+        self.HW_URL = os.getenv("HW_SERVICE_URL", "http://hw_service:8002")
 
         # 3. Docker Infrastructure Control
         # IMPORTANT: This name must match what 'docker ps' shows for your XGBoost container
@@ -151,7 +187,7 @@ class DistributedOrchestrator:
         Does NOT trigger any forecast models.
         """
         return self.sensor.get_current_carbon_intensity(force_mode=carbon_mode)
-
+    
     def get_optimized_forecast(self, country_code, carbon_mode=None):
         """
         Main Orchestrator Logic:
@@ -166,8 +202,9 @@ class DistributedOrchestrator:
 
         # Step 1: Read the Sensor
         carbon_data = self.sensor.get_current_carbon_intensity(force_mode=carbon_mode)
+        #intensity_status = str(carbon_data.get("status", "HIGH")).strip().upper()
         intensity_status = carbon_data["status"]
-
+        logger.info(f"🔍 ROUTING CHECK: Sensor said {intensity_status} (Value: {carbon_data.get('carbon_intensity')})")
         logger.info(f"🌍 Carbon intensity: {carbon_data['carbon_intensity']}g CO2/kWh")
         logger.info(f"   Status: {intensity_status}")
 
@@ -183,32 +220,31 @@ class DistributedOrchestrator:
             logger.info("🌱 Grid is clean → Routing to XGBoost (High-Performance)")
             try:
                 df, execution_carbon = self._call_service(
-                    self.XGB_URL, country_code, timeout=15
+                    self.XGB_URL, country_code, timeout=120
                 )
-                selected_model = "XGBoost (Performance Mode)"
+                selected_model = "XGBoost"
 
             except Exception as xgb_err:
                 logger.warning(f"⚠️ XGBoost failed: {xgb_err}")
                 logger.info("🔄 Falling back to Holt-Winters...")
 
                 try:
-                    df, execution_carbon = self._call_service(self.HW_URL, country_code)
-                    selected_model = "Holt-Winters (Auto-Fallback from XGBoost)"
+                    df, execution_carbon = self._call_service(self.HW_URL, country_code, timeout =30)
+                    selected_model = "Holt-Winters"
 
                 except Exception as hw_err:
                     logger.error("❌ Both services failed!")
-                    return None, {
-                        "error": "All services failed",
-                        "xgb_error": str(xgb_err),
-                        "hw_error": str(hw_err),
-                        "carbon_context": carbon_data,
-                    }
+                    # 1. Call the function locally
+                    fallback_payload = emergency_fallback(country_code, f"XGB: {xgb_err} | HW: {hw_err}")
+                    # 2. Convert and return
+                    df_emergency = pd.DataFrame(fallback_payload["forecast"])
+                    return df_emergency, fallback_payload["metadata"]
 
         else:  # HIGH carbon intensity
             logger.info("☁️ Grid has high carbon → Routing to Holt-Winters (Eco Mode)")
             try:
                 df, execution_carbon = self._call_service(self.HW_URL, country_code)
-                selected_model = "Holt-Winters (Eco Mode)"
+                selected_model = "Holt-Winters"
 
             except Exception as hw_err:
                 logger.warning(f"⚠️ Holt-Winters failed: {hw_err}")
@@ -218,19 +254,18 @@ class DistributedOrchestrator:
                     df, execution_carbon = self._call_service(
                         self.XGB_URL, country_code, timeout=15
                     )
-                    selected_model = "XGBoost (Auto-Fallback from Holt-Winters)"
+                    selected_model = "XGBoost"
 
                 except Exception as xgb_err:
                     logger.error("❌ Both services failed!")
-                    return None, {
-                        "error": "All services failed",
-                        "hw_error": str(hw_err),
-                        "xgb_error": str(xgb_err),
-                        "carbon_context": carbon_data,
-                    }
+                    # 1. Call the function locally
+                    fallback_payload = emergency_fallback(country_code, f"XGB: {xgb_err} | HW: {hw_err}")
+                    # 2. Convert and return
+                    df_emergency = pd.DataFrame(fallback_payload["forecast"])
+                    return df_emergency, fallback_payload["metadata"]
 
         # Step 3: Validate and Return
-        if df is None or df.empty:
+        if df is None or not hasattr(df, "empty") or df.empty:
             logger.error("❌ Received empty forecast data")
             return None, {
                 "error": "Empty forecast data",
@@ -246,12 +281,16 @@ class DistributedOrchestrator:
         metadata = {
             "selected_model": selected_model,
             "carbon_context": carbon_data,
-            "execution_carbon_footprint_kg": execution_carbon,
+            "execution_carbon_kg": execution_carbon,
             "forecast_records": len(df),
             "country_code": country_code,
         }
+        
+        logger.info("🚨 RETURNING FROM ORCHESTRATOR")
+        logger.info(f"df is None: {df is None}")
+        logger.info(f"df empty: {df.empty}")
 
-        return df, metadata
+        return df,metadata
 
 
 # --- Example Usage ---
@@ -265,7 +304,8 @@ if __name__ == "__main__":
     # Test with LOW carbon mode (should use XGBoost)
     print("\n🧪 Test 1: LOW carbon mode (Germany)")
     df, metadata = orchestrator.get_optimized_forecast("DE", carbon_mode="LOW")
-
+    if df is None or df.empty:
+        raise HTTPException(status_code=503, detail="No forecast data")
     if df is not None:
         print(f"\n✅ Success!")
         print(f"   Model: {metadata['selected_model']}")

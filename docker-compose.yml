@@ -7,6 +7,7 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock  # <--- CRITICAL: Gives control permission
     environment:
+      - PYTHONPATH=/app:/app/src
       - PYTHONPATH=/app
       - XGB_SERVICE_URL=http://xgb_service:8001
       - HW_SERVICE_URL=http://hw_service:8002
@@ -18,7 +19,9 @@ services:
 
   hw_service:
     image: energy-hw
-    build: .
+    build: 
+      context: .
+      dockerfile: Dockerfile.hw
     ports:
       - "8002:8002"
     environment:
