@@ -5,6 +5,8 @@ import pandas as pd
 import requests
 from datetime import datetime
 from src.production_phase.carbon_simulator import CarbonSimulator
+import docker
+import time
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -54,9 +56,60 @@ class DistributedOrchestrator:
         self.XGB_URL = os.getenv("XGB_SERVICE_URL", "http://xgb_service:8001")
         self.HW_URL = os.getenv("HW_SERVICE_URL", "http://hw_service:8002")
 
+        # 3. Docker Infrastructure Control
+        # IMPORTANT: This name must match what 'docker ps' shows for your XGBoost container
+        self.container_name = os.getenv("HEAVY_CONTAINER_NAME", "ai-forecasting-for-renewable-energy--xgb_service-1")
+        self.docker_client = None
+        self._connect_to_docker()
+
         logger.info(f"🔧 Orchestrator initialized")
         logger.info(f"   XGBoost Service: {self.XGB_URL}")
         logger.info(f"   Holt-Winters Service: {self.HW_URL}")
+
+    def _connect_to_docker(self):
+        """Establish connection to the local Docker Daemon."""
+        try:
+            self.docker_client = docker.from_env()
+            print("✅ Orchestrator connected to Docker Daemon.")
+        except Exception as e:
+            print(f"⚠️ Failed to connect to Docker: {e}")
+            print("   (Did you mount /var/run/docker.sock in docker-compose?)")
+
+
+    def manage_infrastructure(self, carbon_status):
+        """
+        SUPERVISORY LOGIC:
+        - HIGH CARBON: Kill the heavy container (Scale to 0).
+        - LOW CARBON: Revive the heavy container (Scale to 1).
+        """
+        if not self.docker_client:
+            return  # Safety fallback if docker connection failed
+
+        try:
+            # We use list() + filter because get() throws an error if the name is slightly off
+            containers = self.docker_client.containers.list(all=True)
+            target = next((c for c in containers if self.container_name in c.name), None)
+
+            if not target:
+                logger.warning(f"⚠️ Container '{self.container_name}' not found. Cannot scale.")
+                return
+
+            # LOGIC: ADAPTIVE REDEPLOYMENT
+            if carbon_status == "HIGH" and target.status == "running":
+                logger.info(f"🛑 GRID DIRTY ({carbon_status}): Stopping Heavy AI to save energy...")
+                target.stop()  # This physically shuts down the container
+                
+            elif carbon_status == "LOW" and target.status != "running":
+                logger.info(f"🟢 GRID CLEAN ({carbon_status}): Redeploying Heavy AI...")
+                target.start()  # This boots it back up
+                
+                # Wait for cold start to prevent immediate connection errors
+                logger.info("   ⏳ Waiting 5s for service to initialize...")
+                time.sleep(5) 
+
+        except Exception as e:
+            logger.error(f"❌ Infrastructure Error: {e}")
+    
 
     def _call_service(self, base_url, country_code, timeout=10):
         """
@@ -155,11 +208,14 @@ class DistributedOrchestrator:
         logger.info(f"🌍 Carbon intensity: {carbon_data['carbon_intensity']}g CO2/kWh")
         logger.info(f"   Status: {intensity_status}")
 
+        # Step 2: TRIGGER REDEPLOYMENT
+        self.manage_infrastructure(intensity_status)
+
         selected_model = ""
         df = None
         execution_carbon = 0.0
 
-        # Step 2: Route Traffic Based on Carbon Intensity
+        # Step 2: Route Traffic
         if intensity_status == "LOW":
             logger.info("🌱 Grid is clean → Routing to XGBoost (High-Performance)")
             try:

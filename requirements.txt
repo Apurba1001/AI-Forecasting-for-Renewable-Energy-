@@ -100,3 +100,4 @@ watchdog>=6.0.0
 wcwidth>=0.2.14
 xgboost>=2.0
 yaspin>=3.4.0
+docker>=6.0.0
