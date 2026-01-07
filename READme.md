@@ -68,8 +68,27 @@ Built on a robust **Docker-Compose or Kubernetes** infrastructure, the applicati
 | **Frontend** | Streamlit |
 
 ---
+## 6. CI/CD Pipeline
+This project uses a local CI/CD pipeline built with GitHub Actions, Docker Desktop, and Kubernetes.
+* **CI** runs on every push and pull request to main, Apurba, and Andreas
+     * Code formatting and linting (Black,and isort)
+     * Unit and integration tests
+     * Docker image builds
+     * Basic security scanning
+* **Staging CD**
+     * Automatically deploys to a staging Kubernetes namespace
+     * Uses locally built Docker images (:staging tags)
+     * Runs smoke tests to verify service health
+* **Production CD**
+     * Triggered from main with manual approval
+     * Deploys to a production namespace
+     * Runs health and functional tests
+     * Automatically rolls back on failure
+Everything runs locally on Docker Desktop Kubernetes, making the setup easy to test, debug, and understand without cloud infrastructure.
 
-## 6. How It Works (The Logic Flow)
+---
+
+## 7. How It Works (The Logic Flow)
 1. **User** selects a country (e.g., Germany) in the GUI.
 2. **API Gateway** receives the request and asks the **Carbon Simulator**: *"Is the grid green right now?"*
 3. **Decision Logic:**
@@ -80,7 +99,7 @@ Built on a robust **Docker-Compose or Kubernetes** infrastructure, the applicati
 
 ---
 
-## 7. Architecturally Significant Use Cases
+## 8. Architecturally Significant Use Cases
 
 This project demonstrates four core architectural behaviors that ensure sustainability, resilience, and reliability.
 
