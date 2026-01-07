@@ -5,7 +5,7 @@ import traceback
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
-
+import pandas as pd
 import requests
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -111,79 +111,44 @@ def carbon_live_readout(
 @app.get("/forecast/optimized/{country_code}")
 def get_smart_forecast(
     country_code: str,
-    carbon_mode: Optional[str] = Query(
-        None, description="Force carbon mode: 'HIGH' or 'LOW'"
-    ),
+    carbon_mode: Optional[str] = Query(None, description="Force carbon mode: 'HIGH' or 'LOW'"),
 ):
-    logger.info(
-        f"📡 Forecast request: country={country_code}, carbon_mode={carbon_mode}"
-    )
+    logger.info(f"📡 API Request for {country_code}")
 
-    # ------------------------------------------------------------------
-    # Runtime execution (CHAOS SAFE)
-    # ------------------------------------------------------------------
+    # 1. CALL THE ORCHESTRATOR
+    # This must unpack into two separate variables
+    result = orchestrator.get_optimized_forecast(country_code, carbon_mode=carbon_mode)
 
-    try:
-        df, metadata = orchestrator.get_optimized_forecast(
-            country_code, carbon_mode=carbon_mode
+    # Safety check: Did the orchestrator return the correct number of items?
+    if not isinstance(result, tuple) or len(result) != 2:
+        # This will tell us if the orchestrator is returning a dict instead of a tuple
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Orchestrator error: Expected tuple(df, dict), but got {type(result)}"
         )
 
-    # 🔁 Runtime dependency failure → graceful degradation
-    except ConnectionError as e:
-        logger.warning("🔁 Runtime dependency failure detected")
-        return emergency_fallback(country_code, str(e))
+    forecast_df, metadata = result
 
-    # ❌ Programmer / logic error → crash loudly (NO fallback)
-    except Exception as e:
-        logger.critical("🔥 INTERNAL API ERROR")
-        logger.critical(traceback.format_exc())
-        raise HTTPException(status_code=500, detail="Internal server error")
+    # 2. VALIDATE THE DATAFRAME
+    if forecast_df is None:
+        raise HTTPException(status_code=503, detail="Service unavailable")
 
-    # ------------------------------------------------------------------
-    # Validate orchestrator response
-    # ------------------------------------------------------------------
-
-    # if metadata.get("error"):
-    # return emergency_fallback(country_code, metadata["error"])
-
-    df, metadata = orchestrator.get_optimized_forecast(
-        country_code, carbon_mode=carbon_mode
-    )
-
-    if df is None:
-        return emergency_fallback(
-            country_code, metadata.get("error", "Unknown failure")
+    if not isinstance(forecast_df, pd.DataFrame):
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Validation error: Expected DataFrame, got {type(forecast_df)}"
         )
 
-    if df is None or df.empty:
-        return emergency_fallback(country_code, "Empty forecast from orchestrator")
-
-    # ------------------------------------------------------------------
-    # Success path
-    # ------------------------------------------------------------------
-
-    df_clean = df.reset_index()
-
+    # 3. FORMAT DATA FOR JSON
+    df_clean = forecast_df.copy()
     if "datetime_utc" in df_clean.columns:
-        df_clean["datetime_utc"] = df_clean["datetime_utc"].dt.strftime(
-            "%Y-%m-%d %H:%M:%S"
-        )
+        df_clean["datetime_utc"] = pd.to_datetime(df_clean["datetime_utc"]).dt.strftime("%Y-%m-%d %H:%M:%S")
 
-    forecast_list = df_clean.to_dict(orient="records")
-
-    response_metadata = {
-        "selected_model": metadata.get("selected_model", "Unknown"),
-        "carbon_intensity": metadata.get("carbon_context", {}).get(
-            "carbon_intensity", 0
-        ),
-        "carbon_status": metadata.get("carbon_context", {}).get("status", "UNKNOWN"),
-        "execution_carbon_kg": metadata.get("execution_carbon_footprint_kg", 0.0),
-        "forecast_records": len(forecast_list),
-        "country_code": country_code.upper(),
-        "timestamp": datetime.now().isoformat(),
+    # 4. FINAL RESPONSE (This matches your App.py payload.get logic)
+    return {
+        "metadata": metadata, 
+        "forecast": df_clean.reset_index().to_dict(orient="records")
     }
-
-    return {"metadata": response_metadata, "forecast": forecast_list}
 
 
 # ------------------------------------------------------------------

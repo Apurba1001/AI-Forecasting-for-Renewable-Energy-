@@ -17,7 +17,6 @@ import pandas as pd
 import plotly.graph_objects as go
 import requests
 import streamlit as st
-from codecarbon import EmissionsTracker
 
 # Configure paths
 BASE_DIR = Path(__file__).parent.parent
@@ -34,11 +33,6 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
-
-
-@st.fragment(run_every=15)
-def live_monitor_fragment():
-    draw_live_monitor()
 
 
 # Custom CSS - Modern, Professional Design (UNCHANGED)
@@ -637,46 +631,28 @@ def load_metrics():
     return None
 
 
-@st.cache_data
-def load_carbon_data(model_type):
-    """Load carbon emissions data"""
-    try:
-        carbon_files = list(CARBON_DIR.glob("*.csv"))
-        if carbon_files:
-            df = pd.read_csv(carbon_files[0])
-            if "model_type" in df.columns:
-                model_data = df[df["model_type"] == model_type]
-                if not model_data.empty:
-                    return model_data.iloc[0]["co2_kg"]
-
-        # Default values if file doesn't exist
-        carbon_defaults = {"lightweight": 0.000005, "eco": 0.02, "performance": 0.007}
-        return carbon_defaults.get(model_type, 0.02)
-    except Exception as e:
-        st.error(f"Error loading carbon data: {e}")
-        return 0.02
-
-
 API_URL = os.getenv("API_URL", "http://localhost:8000")
 
 
-def get_system_status():
+def get_system_status(carbon_mode=None):
     status = {"ORCH": "DOWN", "XGB": "DOWN", "HW": "DOWN", "intensity": 0.0}
 
     ORCH_URL = "http://orchestrator:8000"
-    XGB_URL = os.getenv("XGB_SERVICE_URL", "http://localhost:8001")
-    HW_URL = os.getenv("HW_SERVICE_URL", "http://localhost:8002")
+    XGB_URL = os.getenv("XGB_SERVICE_URL", "http://xgb_service:8001")
+    HW_URL = os.getenv("HW_SERVICE_URL", "http://hw_service:8002")
 
     # ---- Carbon live (independent) ----
     try:
-        carbon_resp = requests.get(f"{ORCH_URL}/carbon-live", timeout=2).json()
+        params = {"carbon_mode": carbon_mode} if carbon_mode else {}
+        carbon_resp = requests.get(f"{ORCH_URL}/carbon-live", params=params, timeout=1).json()
         status["intensity"] = carbon_resp.get("carbon_intensity", 0.0)
+        status["status"] = carbon_resp.get("status")
     except Exception as e:
         print("Carbon live error:", e)
 
     # ---- Orchestrator health ----
     try:
-        orch_health = requests.get(f"{ORCH_URL}/health", timeout=2).json()
+        orch_health = requests.get(f"{ORCH_URL}/health", timeout=1).json()
         if orch_health.get("status") == "healthy":
             status["ORCH"] = "UP"
     except Exception as e:
@@ -684,7 +660,7 @@ def get_system_status():
 
     # ---- XGB health ----
     try:
-        xgb_health = requests.get(f"{XGB_URL}/health", timeout=2).json()
+        xgb_health = requests.get(f"{XGB_URL}/health", timeout=1).json()
         if xgb_health.get("status") == "healthy":
             status["XGB"] = "UP"
     except Exception as e:
@@ -692,7 +668,7 @@ def get_system_status():
 
     # ---- HW health ----
     try:
-        hw_health = requests.get(f"{HW_URL}/health", timeout=2).json()
+        hw_health = requests.get(f"{HW_URL}/health", timeout=1).json()
         if hw_health.get("status") == "healthy":
             status["HW"] = "UP"
     except Exception as e:
@@ -702,57 +678,70 @@ def get_system_status():
 
 
 def draw_live_monitor():
-    # Fetch real data
-    sys_status = get_system_status()
+    # A. Get user intent from the sidebar radio key
+    user_choice = st.session_state.get("sim_selector", "Automatic")
+    
+    # B. Map UI text to backend-friendly strings
+    api_mode = None
+    if "LOW" in user_choice: api_mode = "LOW"
+    elif "HIGH" in user_choice: api_mode = "HIGH"
+
+    # C. Fetch the data using the shared mode
+    sys_status = get_system_status(carbon_mode=api_mode)
 
     # Determine Status Color & Label
     intensity = sys_status["intensity"]
-    status_label = "HIGH" if intensity > 300 else "LOW"
-    bg_gradient = (
-        "linear-gradient(135deg, #991b1b 0%, #dc2626 100%)"
-        if status_label == "HIGH"
-        else "linear-gradient(135deg, #065f46 0%, #10b981 100%)"
-    )
+    status_label = sys_status.get("status", "Unknown")
+    
+    # Dynamic Gradient based on Carbon Status
+    if status_label == "HIGH":
+        bg_gradient = "linear-gradient(135deg, #991b1b 0%, #dc2626 100%)" # Red
+        text_color = "#fecaca"
+    elif status_label == "LOW":
+        bg_gradient = "linear-gradient(135deg, #065f46 0%, #10b981 100%)" # Green
+        text_color = "#d1fae5"
+    else:
+        bg_gradient = "linear-gradient(135deg, #374151 0%, #1f2937 100%)" # Gray
+        text_color = "#9ca3af"
 
     def get_tag_style(state):
-        return (
-            "background: #059669; color: white; margin-top: 4px; padding: 3px 6px; border-radius: 999px; font-size: 0.7rem; font-weight: 700; display: inline-block;"
-            if state == "UP"
-            else "background: #dc2626; color: white; margin-top: 4px; padding: 3px 6px; border-radius: 999px; font-size: 0.7rem; font-weight: 700; display: inline-block;"
-        )
+        bg = "#059669" if state == "UP" else "#dc2626"
+        return f"background: {bg}; color: white; margin-top: 4px; padding: 2px 8px; border-radius: 999px; font-size: 0.7rem; font-weight: 700; display: inline-block;"
 
-    st.html(
-        f"""
-    <div style="background: rgba(15, 23, 42, 0.9); border: 1px solid #334155; border-radius: 12px; padding: 14px; margin-bottom: 1rem;">
-        <div style="display: flex; align-items: center; margin-bottom: 15px; color: white;">
-            <strong style="font-size: 1.1rem;">📡 Live System Monitor</strong>
+    # E. Render the HTML
+    st.html(f"""
+    <div style="background: rgba(15, 23, 42, 0.9); border: 1px solid #334155; border-radius: 12px; padding: 14px; margin-bottom: 1rem; font-family: sans-serif;">
+        <div style="display: flex; align-items: center; margin-bottom: 12px; color: white;">
+            <strong style="font-size: 1rem;">📡 Live System Monitor</strong>
         </div>
 
-        <div style="background: {bg_gradient}; border-radius: 10px; padding: 12px; color: white; margin-bottom: 12px;">
-            <div style="font-size: 0.75rem; opacity: 0.85;">Live Grid Intensity</div>
-            <div style="font-size: 1.6rem; font-weight: 700;">
-                {intensity:.1f} <span style="font-size: 1.2rem;">gCO₂/kWh</span>
+        <div style="background: {bg_gradient}; border-radius: 10px; padding: 15px; color: white; margin-bottom: 12px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);">
+            <div style="font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.9;">Grid Carbon Intensity</div>
+            <div style="font-size: 1.8rem; font-weight: 800; margin: 4px 0;">
+                {intensity:.1f} <span style="font-size: 1rem; font-weight: 400;">g/kWh</span>
             </div>
-            <div style="font-weight: 600; font-size: 0.8rem;">STATUS: {status_label}</div>
+            <div style="font-weight: 700; font-size: 0.8rem; display: flex; align-items: center; gap: 5px;">
+                <span style="width: 8px; height: 8px; background: white; border-radius: 50%; display: inline-block;"></span>
+                STATUS: {status_label}
+            </div>
         </div>
 
         <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;">
-            <div style="background: #020617; border-radius: 8px; padding: 6px; text-align: center;">
-                <div style="font-size: 0.7rem; color: #94a3b8;">ORCH</div>
+            <div style="background: #020617; border: 1px solid #1e293b; border-radius: 8px; padding: 8px; text-align: center;">
+                <div style="font-size: 0.65rem; color: #94a3b8; font-weight: 600;">ORCH</div>
                 <div style="{get_tag_style(sys_status['ORCH'])}">{sys_status['ORCH']}</div>
             </div>
-            <div style="background: #020617; border-radius: 8px; padding: 6px; text-align: center;">
-                <div style="font-size: 0.7rem; color: #94a3b8;">XGB</div>
+            <div style="background: #020617; border: 1px solid #1e293b; border-radius: 8px; padding: 8px; text-align: center;">
+                <div style="font-size: 0.65rem; color: #94a3b8; font-weight: 600;">XGB</div>
                 <div style="{get_tag_style(sys_status['XGB'])}">{sys_status['XGB']}</div>
             </div>
-            <div style="background: #020617; border-radius: 8px; padding: 6px; text-align: center;">
-                <div style="font-size: 0.7rem; color: #94a3b8;">HW</div>
+            <div style="background: #020617; border: 1px solid #1e293b; border-radius: 8px; padding: 8px; text-align: center;">
+                <div style="font-size: 0.65rem; color: #94a3b8; font-weight: 600;">HW</div>
                 <div style="{get_tag_style(sys_status['HW'])}">{sys_status['HW']}</div>
             </div>
         </div>
     </div>
-    """
-    )
+    """)
 
 
 def generate_forecast(
@@ -801,24 +790,26 @@ def generate_forecast(
     country_code = country_code_map.get(country, "DE")
 
     # Map GUI selection to API carbon mode
-    carbon_mode_map = {
-        "Automatic": "AUTO",
-        "Low Cost": "HIGH",  # Low Cost GUI = Holt-Winters = HIGH carbon mode
-        "High Cost": "LOW",  # High Cost GUI = XGBoost = LOW carbon mode
-    }
 
-    params = {"carbon_mode": carbon_mode_map[model_type]}
+    params = {}
+    if model_type == "LOW":
+        params["carbon_mode"] = "LOW"
+    elif model_type == "HIGH":
+        params["carbon_mode"] = "HIGH"
 
     # ✅ FIXED: Better error handling
     try:
         response = requests.get(
-            f"{API_URL}/forecast/optimized/{country_code}", params=params, timeout=120
+            f"{API_URL}/forecast/optimized/{country_code}", params=params, timeout=2
         )
-        response.raise_for_status()
+        #response.raise_for_status()
         payload = response.json()
+    except requests.exceptions.ConnectionError:
+        st.error("❌ Orchestrator Offline: Unable to reach the forecasting service.")
+        return None
     except requests.exceptions.RequestException as e:
         st.error(f"❌ API Error: {e}")
-        raise
+        return None
 
     # ✅ FIXED: Extract metadata and forecast data from standardized response
     metadata = payload.get("metadata", {})
@@ -828,7 +819,7 @@ def generate_forecast(
     selected_model = metadata.get("selected_model", "Unknown")
 
     # ✅ NEW: Detect fallback scenarios
-    if "Fallback" in selected_model and model_type == "High Cost":
+    if "Emergency" in selected_model and model_type_selection == "High Cost":
         st.warning(
             f"""
         ⚠️ **High Cost Model (XGBoost) is currently unavailable**
@@ -845,7 +836,7 @@ def generate_forecast(
         **Actual model used:** {selected_model}
         """
         )
-    elif "Fallback" in selected_model and model_type == "Low Cost":
+    elif "Emergency" in selected_model and model_type_selection == "Low Cost":
         st.warning(
             f"""
         ⚠️ **Low Cost Model (Holt-Winters) is currently unavailable**
@@ -863,47 +854,48 @@ def generate_forecast(
         """
         )
     elif "Emergency" in selected_model:
-        # Both models are down - show emergency message
-        if model_type == "High Cost":
-            st.error(
-                f"""
-            🔴 **High Cost Model (XGBoost) is Offline**
-            
-            The XGBoost service is currently unavailable and the automatic fallback 
-            to Holt-Winters also failed.
-            
-            **Showing emergency static forecast data.**
-            
-            💡 **Suggestion:** Try the **Low Cost** model instead, or contact support 
-            if this issue persists.
-            
-            **Status:** {metadata.get('error', 'All services unavailable')}
-            """
-            )
+       # User selection comes from session state inside the function
+        user_choice = st.session_state.get("sim_selector", "Automatic")
+        if user_choice == "High Cost":
+            st.error(f"🔴 **High Cost Model (XGBoost) is Offline**\n\n{metadata.get('error')}")
+        elif user_choice == "Low Cost":
+            st.error(f"🔴 **Low Cost Model (Holt-Winters) is Offline**\n\n{metadata.get('error')}")
         else:
-            st.error(
-                f"""
-            🔴 **Low Cost Model (Holt-Winters) is Offline**
+            st.error("🔴 **System Outage**: Both models are offline. Using static data.")
             
-            The Holt-Winters service is currently unavailable and the automatic fallback 
-            to XGBoost also failed.
-            
-            **Showing emergency static forecast data.**
-            
-            💡 **Suggestion:** Try the **High Cost** model instead, or contact support 
-            if this issue persists.
-            
-            **Status:** {metadata.get('error', 'All services unavailable')}
-            """
-            )
-
-    if not forecast_data:
-        raise ValueError("No forecast data received from API")
+    
+    if not forecast_data or "Emergency" in selected_model:
+        # We return a dummy structure so the app doesn't crash, 
+        # but our error messages above will have already triggered.
+        return {
+            "times": [datetime.now()],
+            "predicted": [0.0],
+            "upper_bound": [0.0],
+            "lower_bound": [0.0],
+            "model_type": model_type,
+            "selected_model": "Emergency",
+            "carbon_emissions_kg": 0.0,
+            "full_forecast_df": pd.DataFrame()
+        }
 
     # ✅ FIXED: Build DataFrame from forecast
     df = pd.DataFrame(forecast_data)
-    df["datetime_utc"] = pd.to_datetime(df["datetime_utc"])
+    # Check for common column names for the timestamp
+    potential_date_cols = ["datetime_utc", "index", "timestamp"]
+    actual_date_col = next((c for c in potential_date_cols if c in df.columns), None)
+    if actual_date_col:
+        df[actual_date_col] = pd.to_datetime(df[actual_date_col])
+        if actual_date_col != "datetime_utc":
+            df.drop(columns=[actual_date_col], inplace=True, errors="ignore")
+    else:
+        try:
+            df.index = pd.to_datetime(df.index)
+            df["datetime_utc"] = df.index
+        except:
+            raise KeyError(f"Could not find time column. Available columns: {df.columns.tolist()}")
+        
     df.set_index("datetime_utc", inplace=True)
+    df.sort_index(inplace=True)
 
     # ✅ FIXED: Get carbon emissions from metadata
     carbon_emissions_kg = metadata.get("execution_carbon_kg", 0.0)
@@ -975,6 +967,12 @@ st.markdown(
 
 # Sidebar configuration
 with st.sidebar:
+    @st.fragment(run_every=8)
+    def auto_refresh_monitor():
+        # This function pulls from st.session_state.sim_selector automatically
+        draw_live_monitor()
+    
+    auto_refresh_monitor()
     st.header("🔧 Forecast Configuration")
 
     # Load available options
@@ -991,12 +989,8 @@ with st.sidebar:
         help="Select the country for energy forecast",
     )
 
-    # ✅ MOVE THIS HERE (after st.divider)
     st.divider()
 
-    live_monitor_fragment()
-
-    st.divider()
 
     # Energy source selection - Only Solar, Wind Onshore, Wind Offshore
     energy_source = st.selectbox(
@@ -1065,35 +1059,23 @@ with st.sidebar:
         "High Cost": "⚡ High  (Dirty Grid)",
     }
 
-    model_type = st.radio(
-        "Choose Cost Model",
+    model_type_selection = st.radio(
+        "Carbon Mode",
         options=list(model_options.keys()),
         format_func=lambda x: model_options[x],
         index=0,
-        help="Low Cost: Holt-Winters (faster)\nHigh Cost: XGBoost (more accurate)",
+        key="sim_selector",
+        help="Automatic: System decides based on live grid carbon intensity\nLow: Grid is clean \nHigh: Grid is dirty",
     )
-
-    # Model info card 
-    if model_type == "Automatic":
-        #Get current intensity
-        sys_status = get_system_status()
-        current_intensity = sys_status["intensity"]
         
-        #Auto-Select based on threshold (300 gCO2/kWh)
-        if current_intensity < 300:
-            actual_model = "Low Cost"
-        else:
-            actual_model = "High Cost"
-    else:
-        actual_model = model_type
         
     # ✅ FIX: Check actual_model instead of model_type
-    if actual_model == "Low Cost":
-        model_key = "lightweight"
-        carbon_emissions = load_carbon_data(model_key)
-    else:  # High Cost
-        model_key = "performance"
-        carbon_emissions = load_carbon_data(model_key)
+    if model_type_selection == "Low Cost":
+        api_param = "LOW"
+    elif model_type_selection == "High Cost":
+        api_param = "HIGH"
+    else:
+        api_param = None
 
     st.divider()
 
@@ -1113,8 +1095,10 @@ with st.sidebar:
         st.write(f"**Date:** {forecast_date.strftime('%Y-%m-%d')}")
         st.write(f"**Time:** {forecast_time.strftime('%H:%M')}")
         st.write(f"**Interval:** {forecast_interval}")
-        st.write(f"**Model:** {model_type}"+(f" → {actual_model}" if model_type == "Automatic" else ""))
-        st.write(f"**CO₂ Impact:** {carbon_emissions:.3f} kg")
+        # Optional: show the actual model if forecast has run
+        if "forecast_data" in st.session_state:
+            actual = st.session_state["forecast_data"].get("selected_model")
+            st.write(f"**Actual Model Used:** {actual}")
 
 # Main content
 if run_forecast:
@@ -1123,21 +1107,23 @@ if run_forecast:
         forecast_data = generate_forecast(
             country=country,
             energy_source=energy_source,
-            model_type=actual_model,
+            model_type=api_param,
             forecast_date=forecast_date,
             forecast_time=forecast_time,
             interval_hours=interval_hours,
         )
 
         if forecast_data:
+            # This 'model_type' is used by Col5 and your chart logic
+            st.session_state["model_type"] = forecast_data["model_type"]
+            # This is used for the Metric Label in Col3
+            st.session_state["actual_model_used"] = forecast_data["selected_model"]
             st.session_state["forecast_data"] = forecast_data
             st.session_state["current_country"] = country
             st.session_state["current_energy"] = energy_source
             st.session_state["forecast_date"] = forecast_date
             st.session_state["forecast_time"] = forecast_time
             st.session_state["interval"] = forecast_interval
-            st.session_state["model_type"] = actual_model
-            st.session_state["actual_model_used"] = actual_model
             st.success("✅ Forecast completed successfully!")
 
 # Display forecast if available
@@ -1175,7 +1161,7 @@ if "forecast_data" in st.session_state:
 
         # ---- Delta calculation (safe) ----
         if selected_hour + 1 < len(series):
-            delta_value = current_output - series[selected_hour + 1]
+            delta_value = current_output - series[selected_hour - 1]
             delta_str = f"{delta_value:.0f} MW"
         else:
             delta_str = None
@@ -1199,33 +1185,35 @@ if "forecast_data" in st.session_state:
         )
         
     with col3:
-        if st.session_state.get("model_type") == "Automatic":
-            actual_used = st.session_state.get("actual_model_used", actual_model)
-            
-            # Just show the model, intensity is already in sidebar
-            if actual_used == "Low Cost":
-                icon = "🌱"
-                delta_text = "Eco-Friendly"
-                delta_color = "normal"
-            else:
-                icon = "⚡"
-                delta_text = "Performance"
-                delta_color = "inverse"
-            
-            st.metric(
-                label="🤖 Auto-Selected",
-                value=f"{icon} {actual_used}",
-                delta=delta_text,
-                delta_color=delta_color
-            )
+        # Get the actual model that was used from metadata
+        selected_model = forecast_data.get("selected_model", "Unknown")
+        
+        # --- FIX 1: Remove "High Accuracy" text ---
+        if "XGBoost" in selected_model:
+            model_name, icon, m_desc = "XGBoost", "⚡", "Performance"
+            delta_color = "inverse"
+        elif "Holt-Winters" in selected_model:
+            model_name, icon, m_desc = "Holt-Winters", "🌱", "Eco-Friendly"
+            delta_color = "normal"
         else:
-            # Show accuracy for manual selection
-            st.metric(
-                label="Model Accuracy",
-                value="94.3%",
-                delta="+1.2%"
-            )
-
+            model_name, icon, m_desc = "Emergency", "🚨", "Offline"
+            delta_color = "off"
+        
+        # --- FIX 3: Fix the Emergency Label Logic ---
+        if "Fallback" in selected_model:
+            m_desc = "⚠️ Fallback"
+            delta_color = "off"
+        elif "Emergency" in selected_model:
+            m_desc = "🔴 Emergency"
+            delta_color = "inverse"
+        # If neither Fallback nor Emergency, it keeps the 'm_desc' from above
+        
+        st.metric(
+            label="🤖 Model Used",
+            value=f"{icon} {model_name}",
+            delta=m_desc,
+            delta_color=delta_color
+        )
         
     with col4:
         avg_output = np.mean(forecast_data["predicted"])
