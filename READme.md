@@ -2,7 +2,12 @@
 
 **Team Members:**  
 - Andreas Zisch  
+- Tasks: Raw data download, Training of Holt Winters Models, Prediction Classes, Orchestrator, API
+
 - Apurba Bhushan Parajuli 
+- Tasks: Feature Engineering & Training XGBoost Model, GUI, Docker-Compose Deployment, CI/CD Pipeline
+
+
 
 ## 1. Project Definition
 The **AI Forecasting for Renewable Energy** is a cloud-native, microservice-based forecasting system designed to predict renewable energy generation (Solar, Wind) across Europe. It relies on AI models trained offline using **2024 historical data sourced directly from the ENTSO-E Transparency Platform via API**.
