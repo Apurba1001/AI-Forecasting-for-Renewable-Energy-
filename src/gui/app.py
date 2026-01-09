@@ -1192,7 +1192,7 @@ if "forecast_data" in st.session_state:
 
         st.metric(
             label="🌍 Carbon Footprint",
-            value=f"{carbon_emissions:.6f} kg CO₂eq",
+            value=f"{carbon_emissions:.8f} kg CO₂eq",
             delta=comparison,
             delta_color=delta_color,
             help=f"Total emissions from model inference"
