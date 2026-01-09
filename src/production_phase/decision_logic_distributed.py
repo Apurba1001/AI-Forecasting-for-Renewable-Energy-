@@ -97,13 +97,14 @@ class DistributedOrchestrator:
             # LOGIC: ADAPTIVE REDEPLOYMENT
             if carbon_status == "HIGH" and target.status == "running":
                 logger.info(f"🛑 GRID DIRTY ({carbon_status}): Stopping Heavy AI to save energy...")
-                target.stop()  # This physically shuts down the container
+                target.pause()  # This physically shuts down the container
                 
             elif carbon_status == "LOW" and target.status != "running":
                 logger.info(f"🟢 GRID CLEAN ({carbon_status}): Redeploying Heavy AI...")
-                target.start()  # This boots it back up
+                target.unpause()  # This boots it back up
                 
                 # Wait for cold start to prevent immediate connection errors
+                target.restart()  # Ensure a fresh start
                 logger.info("   ⏳ Waiting 5s for service to initialize...")
                 time.sleep(5) 
 
@@ -111,7 +112,7 @@ class DistributedOrchestrator:
             logger.error(f"❌ Infrastructure Error: {e}")
     
 
-    def _call_service(self, base_url, country_code, timeout=10):
+    def _call_service(self, base_url, country_code, timeout=15):
         """
         Internal helper to handle network requests cleanly.
         Returns: (DataFrame, emissions_kg)
@@ -220,7 +221,7 @@ class DistributedOrchestrator:
             logger.info("🌱 Grid is clean → Routing to XGBoost (High-Performance)")
             try:
                 df, execution_carbon = self._call_service(
-                    self.XGB_URL, country_code, timeout=120
+                    self.XGB_URL, country_code
                 )
                 selected_model = "XGBoost"
 
@@ -229,7 +230,7 @@ class DistributedOrchestrator:
                 logger.info("🔄 Falling back to Holt-Winters...")
 
                 try:
-                    df, execution_carbon = self._call_service(self.HW_URL, country_code, timeout =30)
+                    df, execution_carbon = self._call_service(self.HW_URL, country_code, timeout=4)
                     selected_model = "Holt-Winters"
 
                 except Exception as hw_err:
@@ -252,7 +253,7 @@ class DistributedOrchestrator:
 
                 try:
                     df, execution_carbon = self._call_service(
-                        self.XGB_URL, country_code, timeout=15
+                        self.XGB_URL, country_code, timeout=4
                     )
                     selected_model = "XGBoost"
 

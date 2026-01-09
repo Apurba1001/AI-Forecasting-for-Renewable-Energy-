@@ -644,7 +644,7 @@ def get_system_status(carbon_mode=None):
     # ---- Carbon live (independent) ----
     try:
         params = {"carbon_mode": carbon_mode} if carbon_mode else {}
-        carbon_resp = requests.get(f"{ORCH_URL}/carbon-live", params=params, timeout=1).json()
+        carbon_resp = requests.get(f"{ORCH_URL}/carbon-live", params=params, timeout=0.5).json()
         status["intensity"] = carbon_resp.get("carbon_intensity", 0.0)
         status["status"] = carbon_resp.get("status")
     except Exception as e:
@@ -652,7 +652,7 @@ def get_system_status(carbon_mode=None):
 
     # ---- Orchestrator health ----
     try:
-        orch_health = requests.get(f"{ORCH_URL}/health", timeout=1).json()
+        orch_health = requests.get(f"{ORCH_URL}/health", timeout=3).json()
         if orch_health.get("status") == "healthy":
             status["ORCH"] = "UP"
     except Exception as e:
@@ -660,7 +660,7 @@ def get_system_status(carbon_mode=None):
 
     # ---- XGB health ----
     try:
-        xgb_health = requests.get(f"{XGB_URL}/health", timeout=1).json()
+        xgb_health = requests.get(f"{XGB_URL}/health", timeout=5).json()
         if xgb_health.get("status") == "healthy":
             status["XGB"] = "UP"
     except Exception as e:
@@ -668,7 +668,7 @@ def get_system_status(carbon_mode=None):
 
     # ---- HW health ----
     try:
-        hw_health = requests.get(f"{HW_URL}/health", timeout=1).json()
+        hw_health = requests.get(f"{HW_URL}/health", timeout=3).json()
         if hw_health.get("status") == "healthy":
             status["HW"] = "UP"
     except Exception as e:
@@ -800,7 +800,7 @@ def generate_forecast(
     # ✅ FIXED: Better error handling
     try:
         response = requests.get(
-            f"{API_URL}/forecast/optimized/{country_code}", params=params, timeout=2
+            f"{API_URL}/forecast/optimized/{country_code}", params=params, timeout=60
         )
         #response.raise_for_status()
         payload = response.json()
@@ -817,51 +817,6 @@ def generate_forecast(
 
     # ✅ NEW: Check what model was actually used
     selected_model = metadata.get("selected_model", "Unknown")
-
-    # ✅ NEW: Detect fallback scenarios
-    if "Emergency" in selected_model and model_type_selection == "High Cost":
-        st.warning(
-            f"""
-        ⚠️ **High Cost Model (XGBoost) is currently unavailable**
-        
-        The system has automatically switched to the **Low Cost Model (Holt-Winters)** 
-        to provide you with forecast results.
-        
-        **What this means:**
-        - ✅ You still get forecast data
-        - ⚡ Faster response time
-        - 🌱 Lower carbon footprint
-        - ⚠️ Slightly lower accuracy
-        
-        **Actual model used:** {selected_model}
-        """
-        )
-    elif "Emergency" in selected_model and model_type_selection == "Low Cost":
-        st.warning(
-            f"""
-        ⚠️ **Low Cost Model (Holt-Winters) is currently unavailable**
-        
-        The system has automatically switched to the **High Cost Model (XGBoost)** 
-        to provide you with forecast results.
-        
-        **What this means:**
-        - ✅ You still get forecast data
-        - 📊 Higher accuracy
-        - ⚠️ Slower response time
-        - 🌍 Higher carbon footprint
-        
-        **Actual model used:** {selected_model}
-        """
-        )
-    elif "Emergency" in selected_model:
-       # User selection comes from session state inside the function
-        user_choice = st.session_state.get("sim_selector", "Automatic")
-        if user_choice == "High Cost":
-            st.error(f"🔴 **High Cost Model (XGBoost) is Offline**\n\n{metadata.get('error')}")
-        elif user_choice == "Low Cost":
-            st.error(f"🔴 **Low Cost Model (Holt-Winters) is Offline**\n\n{metadata.get('error')}")
-        else:
-            st.error("🔴 **System Outage**: Both models are offline. Using static data.")
             
     
     if not forecast_data or "Emergency" in selected_model:
@@ -967,7 +922,7 @@ st.markdown(
 
 # Sidebar configuration
 with st.sidebar:
-    @st.fragment(run_every=8)
+    @st.fragment(run_every=15)
     def auto_refresh_monitor():
         # This function pulls from st.session_state.sim_selector automatically
         draw_live_monitor()
