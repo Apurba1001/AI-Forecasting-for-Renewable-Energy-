@@ -1177,32 +1177,25 @@ if "forecast_data" in st.session_state:
             value=f"{avg_output:.0f} MW",
             delta=f"{(avg_output - current_output):.0f} MW",
         )
-
+        
     with col5:
-        # ✅ FIXED: Carbon Emissions Display from API
+        # ✅ FIXED: Carbon Emissions Display - Always in kg CO₂eq
         carbon_emissions = forecast_data.get("carbon_emissions_kg", 0.0)
 
         # Color based on model type
-        if st.session_state.get("model_type") == "Low Cost":
+        if st.session_state.get("model_type") == "LOW":
             delta_color = "normal"  # Green
-            comparison = "Low Impact"
+            comparison = "Eco Mode"
         else:
             delta_color = "inverse"  # Red
-            comparison = "High Impact"
-
-        # Smart display based on magnitude
-        if carbon_emissions < 0.001:
-            value_str = f"{carbon_emissions*1000000:.2f} mg CO₂"
-        elif carbon_emissions < 1:
-            value_str = f"{carbon_emissions*1000:.2f} g CO₂"
-        else:
-            value_str = f"{carbon_emissions:.4f} kg CO₂"
+            comparison = "Performance Mode"
 
         st.metric(
-            label="Carbon Footprint",
-            value=value_str,
+            label="🌍 Carbon Footprint",
+            value=f"{carbon_emissions:.6f} kg CO₂eq",
             delta=comparison,
             delta_color=delta_color,
+            help=f"Total emissions from model inference"
         )
 
     st.divider()
